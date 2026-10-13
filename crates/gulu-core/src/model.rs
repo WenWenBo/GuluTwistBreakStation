@@ -114,6 +114,21 @@ pub struct ReminderRuntime {
     pub phase: ReminderPhase,
 }
 
+/// Read-only summary for compact views. Times remain effective working time.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReminderSummary {
+    None,
+    Upcoming {
+        kinds: Vec<ReminderKind>,
+        remaining_ms: u64,
+        snoozed: bool,
+    },
+    Due {
+        kinds: Vec<ReminderKind>,
+        notified: bool,
+    },
+}
+
 #[derive(Debug, Clone)]
 pub enum Effect {
     OpenBreak(BreakSession),

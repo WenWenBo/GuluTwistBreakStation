@@ -2,9 +2,10 @@ use crate::Event;
 use async_channel::Sender;
 use chrono::Local;
 use gulu_core::*;
-use gulu_storage::Store;
+use gulu_storage::{Store, UiPreferences};
 use std::{path::PathBuf, sync::mpsc, time::Duration};
 pub enum Job {
+    SaveUi(u64, UiPreferences),
     Save(Settings),
     Commit(Vec<Effect>, Option<BreakSession>, Pause),
     Clear,
@@ -14,6 +15,8 @@ pub enum Job {
     Barrier(async_channel::Sender<()>),
 }
 pub struct Loaded {
+    pub ui: UiPreferences,
+    pub ui_warning: String,
     pub settings: Settings,
     pub pause: Pause,
     pub records: Vec<ActivityRecord>,
@@ -31,7 +34,16 @@ pub fn start(path: PathBuf, tx: Sender<Event>) -> (mpsc::Sender<Job>, Loaded) {
         s.recover_session(Local::now().fixed_offset())?;
         s.prune(Local::now().date_naive())?;
         let records = s.records(Local::now().date_naive())?;
+        let (ui, ui_warning) = match s.ui_preferences() {
+            Ok(ui) => (ui, String::new()),
+            Err(e) => (
+                UiPreferences::default(),
+                format!("悬浮窗设置无法读取，暂时关闭；原数据已保留：{e}"),
+            ),
+        };
         Ok(Loaded {
+            ui,
+            ui_warning,
             settings,
             pause,
             records,
@@ -40,6 +52,8 @@ pub fn start(path: PathBuf, tx: Sender<Event>) -> (mpsc::Sender<Job>, Loaded) {
         })
     })();
     let loaded = initial.unwrap_or_else(|e| Loaded {
+        ui: UiPreferences::default(),
+        ui_warning: String::new(),
         settings: Settings::default(),
         pause: Pause::Manual,
         records: Vec::new(),
@@ -66,6 +80,13 @@ pub fn start(path: PathBuf, tx: Sender<Event>) -> (mpsc::Sender<Job>, Loaded) {
             let flush = matches!(job, Some(Job::Flush));
             let mut barrier = None;
             match job {
+                Some(Job::SaveUi(revision, prefs)) => {
+                    let result = store
+                        .as_ref()
+                        .ok_or_else(|| "数据不可用，请先恢复".to_string())
+                        .and_then(|s| s.save_ui_preferences(&prefs).map_err(|e| e.to_string()));
+                    let _ = tx.try_send(Event::UiSaved(revision, result));
+                }
                 Some(Job::Barrier(tx)) => barrier = Some(tx),
                 Some(Job::Save(settings)) => {
                     let result = store

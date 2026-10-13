@@ -7,6 +7,7 @@ use tray_icon::{
 pub struct Tray {
     pub _icon: TrayIcon,
     pub status: MenuItem,
+    pub floating: MenuItem,
 }
 impl Tray {
     pub fn new(tx: Sender<Event>) -> anyhow::Result<Self> {
@@ -14,6 +15,8 @@ impl Tray {
         let status = MenuItem::with_id("status", "咕嘟扭扭 · 准备好了", false, None);
         menu.append(&MenuItem::with_id("open", "打开咕嘟扭扭", true, None))?;
         menu.append(&status)?;
+        let floating = MenuItem::with_id("floating", "显示悬浮窗", true, None);
+        menu.append(&floating)?;
         menu.append(&PredefinedMenuItem::separator())?;
         for (id, title) in [
             ("pause15", "暂停 15 分钟"),
@@ -28,6 +31,7 @@ impl Tray {
         }
         MenuEvent::set_event_handler(Some(move |e: MenuEvent| {
             let c = match e.id.as_ref() {
+                "floating" => Command::ToggleFloating,
                 "open" => Command::Open,
                 "pause15" => Command::PauseMinutes(15),
                 "pause60" => Command::PauseMinutes(60),
@@ -60,6 +64,7 @@ impl Tray {
         Ok(Self {
             _icon: icon,
             status,
+            floating,
         })
     }
 }

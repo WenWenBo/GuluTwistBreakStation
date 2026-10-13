@@ -1,7 +1,10 @@
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 mod artwork;
+mod floating;
+mod floating_controller;
 mod persistence;
 mod platform;
+mod preferences;
 mod tray;
 mod ui;
 use async_channel::Sender;
@@ -15,6 +18,13 @@ use uuid::Uuid;
 gpui_kit::actions!(station, [QuitApplication, ShowStation, CloseStationWindow]);
 #[derive(Clone, Debug)]
 pub enum Command {
+    OpenHome,
+    OpenSettings,
+    SetFloating(bool),
+    ToggleFloating,
+    ResetFloating,
+    FloatingMenu,
+    CloseFloatingMenu,
     Open,
     CloseWindow,
     Hide,
@@ -34,6 +44,8 @@ pub enum Command {
     Recover(bool),
 }
 pub enum Event {
+    UiSaved(u64, Result<(), String>),
+    FloatingMoved(gulu_storage::FloatingPosition),
     Tick,
     Displays,
     Command(Command),
@@ -48,6 +60,10 @@ pub enum Event {
     Notice(String),
 }
 pub struct Snapshot {
+    pub ui: gulu_storage::UiPreferences,
+    pub ui_saving: bool,
+    pub ui_error: String,
+    pub floating: floating::DisplayState,
     pub settings: Settings,
     pub pause: Pause,
     pub status: String,
@@ -62,6 +78,12 @@ pub struct Snapshot {
     pub storage_error: String,
 }
 struct Controller {
+    preferences: preferences::Preferences,
+    floating_window: Option<(AnyWindowHandle, Entity<floating::FloatingView>)>,
+    floating_menu: Option<AnyWindowHandle>,
+    floating_visible: bool,
+    floating_failed: bool,
+    position_due: Option<std::time::Instant>,
     engine: Engine,
     snapshot: Rc<RefCell<Snapshot>>,
     tx: Sender<Event>,
@@ -141,6 +163,7 @@ impl Controller {
         deadline: u64,
         cx: &mut App,
     ) -> anyhow::Result<()> {
+        self.hide_floating(cx);
         self.close_overlays(cx);
         self.previous_focus = platform::capture_focus();
         let displays = cx.displays();
@@ -270,13 +293,24 @@ impl Controller {
     fn event(&mut self, event: Event, cx: &mut App) {
         let now = platform::clock();
         let event = match event {
-            Event::Command(Command::CloseWindow) => {
-                Event::Command(if self.preview.is_some() || self.engine.session.is_some() {
+            Event::Command(Command::CloseWindow) => Event::Command(
+                if self
+                    .floating_menu
+                    .is_some_and(|w| Some(w) == cx.active_window())
+                {
+                    Command::CloseFloatingMenu
+                } else if self
+                    .floating_window
+                    .as_ref()
+                    .is_some_and(|(w, _)| Some(*w) == cx.active_window())
+                {
+                    Command::SetFloating(false)
+                } else if self.preview.is_some() || self.engine.session.is_some() {
                     Command::Interrupt
                 } else {
                     Command::Hide
-                })
-            }
+                },
+            ),
             event => event,
         };
         let old_clock = self.engine.clock;
@@ -315,7 +349,52 @@ impl Controller {
             self.apply(effects, cx);
         }
         match event {
+            Event::FloatingMoved(position) => {
+                if self.preferences.set_position(Some(position)) {
+                    self.position_due =
+                        Some(std::time::Instant::now() + Duration::from_millis(300));
+                }
+            }
+            Event::UiSaved(revision, result) => {
+                self.preferences.finish_save(revision, result.is_ok());
+                self.snapshot.borrow_mut().ui_error = result
+                    .err()
+                    .map(|e| format!("悬浮窗设置未保存：{e}。开关已恢复，当前位置仅本次有效。"))
+                    .unwrap_or_default();
+                self.save_ui_if_ready(false);
+                if !self.snapshot.borrow().ui_error.is_empty() {
+                    self.open_main(cx);
+                }
+            }
             Event::Command(c) => match c {
+                Command::OpenHome | Command::OpenSettings => {
+                    self.open_main(cx);
+                    let page = if matches!(c, Command::OpenSettings) {
+                        1
+                    } else {
+                        0
+                    };
+                    if let Some((handle, view)) = &self.main {
+                        let view = view.clone();
+                        let _ = handle.update(cx, |_, w, cx| {
+                            view.update(cx, |v, cx| v.navigate(page, w, cx))
+                        });
+                    }
+                }
+                Command::SetFloating(enabled) => self.set_floating(enabled, cx),
+                Command::ToggleFloating => {
+                    self.set_floating(!self.preferences.current.floating_enabled, cx)
+                }
+                Command::ResetFloating => {
+                    if !self.preferences.saving() {
+                        self.preferences.set_position(None);
+                        self.position_due = None;
+                        self.reposition_floating(cx);
+                        self.save_ui_if_ready(true);
+                    }
+                }
+                Command::FloatingMenu => self.open_floating_menu(cx),
+                Command::CloseFloatingMenu => self.close_floating_menu(cx),
                 Command::CloseWindow => unreachable!("close resolved before dispatch"),
                 Command::Open => self.open_main(cx),
                 Command::Hide => {
@@ -383,6 +462,8 @@ impl Controller {
                 }
                 Command::Quit => {
                     self.quitting = true;
+                    self.hide_floating(cx);
+                    self.save_ui_if_ready(true);
                     self.preview = None;
                     self.close_overlays(cx);
                     let effects = self.engine.shutdown(now);
@@ -473,8 +554,11 @@ impl Controller {
             Event::Recovered(result) => match result {
                 Ok(settings) => {
                     self.engine = Engine::new(settings, now, Pause::None).unwrap();
+                    self.preferences = preferences::Preferences::new(Default::default());
+                    self.position_due = None;
                     let mut s = self.snapshot.borrow_mut();
                     s.recovery = false;
+                    s.ui_error.clear();
                     s.records.clear();
                     s.message = "已恢复。原数据已另存到数据目录。".into();
                 }
@@ -533,6 +617,8 @@ impl Controller {
                 }
             }
             Event::Displays => {
+                self.close_floating_menu(cx);
+                self.reposition_floating(cx);
                 if let Some(s) = self.engine.session.clone() {
                     if let Err(e) = self.open_overlays(
                         s.items
@@ -592,6 +678,13 @@ impl Controller {
         ));
     }
     fn refresh(&mut self, cx: &mut App) {
+        if self
+            .position_due
+            .is_some_and(|due| due <= std::time::Instant::now())
+        {
+            self.reposition_floating(cx);
+        }
+        self.save_ui_if_ready(false);
         if let Some((window, _)) = &self.main {
             self.main_visible = window
                 .update(cx, |_, w, _| platform::is_visible(w))
@@ -599,6 +692,12 @@ impl Controller {
         }
         let now = self.engine.clock;
         let mut s = self.snapshot.borrow_mut();
+        s.ui = self.preferences.current.clone();
+        s.ui_saving = self.preferences.saving();
+        s.floating = floating::DisplayState::from_engine(
+            &self.engine,
+            !s.storage_error.is_empty() || !s.ui_error.is_empty(),
+        );
         s.settings = self.engine.settings.clone();
         s.pause = self.engine.pause.clone();
         s.pending = self.engine.pending();
@@ -670,6 +769,7 @@ impl Controller {
             self.tray_status = s.status.clone();
         }
         drop(s);
+        self.sync_floating(cx);
         if self.main_visible
             && let Some((_, v)) = &self.main
         {
@@ -680,9 +780,23 @@ impl Controller {
         }
     }
     fn wait_ms(&self, cx: &App) -> u64 {
+        if !self.preferences.saving()
+            && let Some(due) = self.position_due
+        {
+            return self
+                .engine
+                .next_wake_ms()
+                .min(
+                    due.saturating_duration_since(std::time::Instant::now())
+                        .as_millis()
+                        .max(1) as u64,
+                )
+                .min(1000);
+        }
         if self.quitting {
             1000
         } else if !self.overlays.is_empty()
+            || (self.floating_visible && self.snapshot.borrow().floating.ticking)
             || (self.main_visible
                 && self.engine.running()
                 && self
@@ -746,6 +860,10 @@ fn run() -> anyhow::Result<()> {
         loaded.pause.clone(),
     )?;
     let snapshot = Rc::new(RefCell::new(Snapshot {
+        ui: loaded.ui.clone(),
+        ui_saving: false,
+        ui_error: loaded.ui_warning,
+        floating: Default::default(),
         settings: loaded.settings,
         pause: loaded.pause,
         status: String::new(),
@@ -851,6 +969,12 @@ fn run() -> anyhow::Result<()> {
             .map_err(|e| snapshot.borrow_mut().message = format!("托盘不可用，请保留小站窗口：{e}"))
             .ok();
         let mut c = Controller {
+            preferences: preferences::Preferences::new(loaded.ui),
+            floating_window: None,
+            floating_menu: None,
+            floating_visible: false,
+            floating_failed: false,
+            position_due: None,
             engine,
             snapshot,
             tx,
@@ -871,13 +995,20 @@ fn run() -> anyhow::Result<()> {
             notice_tags: Default::default(),
         };
         c.refresh(cx);
-        c.open_main(cx);
+        if !c.floating_visible
+            || c.tray.is_none()
+            || !c.snapshot.borrow().storage_error.is_empty()
+            || !c.snapshot.borrow().ui_error.is_empty()
+        {
+            c.open_main(cx);
+        }
         let c = Rc::new(RefCell::new(c));
         let quitting = c.clone();
         cx.on_app_quit(move |cx| {
             let (done, rx) = async_channel::bounded(1);
             {
                 let mut c = quitting.borrow_mut();
+                c.hide_floating(cx);
                 c.close_overlays(cx);
                 if !c.quitting {
                     c.quitting = true;
@@ -885,6 +1016,7 @@ fn run() -> anyhow::Result<()> {
                     c.apply(effects, cx);
                     c.persist_pause();
                 }
+                c.save_ui_if_ready(true);
                 let _ = c.jobs.send(Job::Barrier(done));
             }
             let timer = cx.background_executor().timer(Duration::from_secs(2));

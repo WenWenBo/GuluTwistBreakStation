@@ -33,6 +33,69 @@ fn records(e: &[Effect]) -> Vec<Outcome> {
         .collect()
 }
 #[test]
+fn compact_summary_orders_real_times_and_snoozes_without_mutating() {
+    let mut e = engine(ReminderMode::Gentle);
+    e.tick(clock(300));
+    let water = e.instance(ReminderKind::Water).unwrap().id;
+    e.respond(water, Response::Snooze(5), clock(300));
+    for kind in [
+        ReminderKind::Stretch,
+        ReminderKind::Walk,
+        ReminderKind::Stand,
+    ] {
+        let id = e.instance(kind).unwrap().id;
+        e.respond(id, Response::Complete, clock(300));
+    }
+    e.reminders[1].remaining_ms = 300_001;
+    e.settings.reminders[2].enabled = false;
+    e.reminders[2].remaining_ms = 1;
+    e.reminders[3].remaining_ms = 300_000;
+    let expected = ReminderSummary::Upcoming {
+        kinds: vec![ReminderKind::Water, ReminderKind::Stand],
+        remaining_ms: 300_000,
+        snoozed: false,
+    };
+    assert_eq!(e.reminder_summary(), expected);
+    assert_eq!(e.reminder_summary(), expected);
+    assert_eq!(e.instance(ReminderKind::Water).unwrap().id, water);
+    e.reminders[3].remaining_ms = 300_001;
+    assert_eq!(
+        e.reminder_summary(),
+        ReminderSummary::Upcoming {
+            kinds: vec![ReminderKind::Water],
+            remaining_ms: 300_000,
+            snoozed: true
+        }
+    );
+}
+#[test]
+fn compact_summary_distinguishes_undelivered_due_and_breaking() {
+    let mut e = engine(ReminderMode::Strong);
+    e.tick(clock(300));
+    assert_eq!(
+        e.reminder_summary(),
+        ReminderSummary::Due {
+            kinds: ReminderKind::ALL.to_vec(),
+            notified: false
+        }
+    );
+    e.tick(clock(301));
+    assert_eq!(e.reminder_summary(), ReminderSummary::None);
+    let mut e = engine(ReminderMode::Gentle);
+    e.tick(clock(300));
+    assert_eq!(
+        e.reminder_summary(),
+        ReminderSummary::Due {
+            kinds: ReminderKind::ALL.to_vec(),
+            notified: true
+        }
+    );
+    e.set_pause(Pause::Manual, clock(300));
+    let before = e.reminder_summary();
+    e.tick(clock(330));
+    assert_eq!(e.reminder_summary(), before);
+}
+#[test]
 fn onboarding_does_not_schedule() {
     let mut e = Engine::new(Settings::default(), clock(0), Pause::None).unwrap();
     assert!(e.tick(clock(7200)).is_empty());

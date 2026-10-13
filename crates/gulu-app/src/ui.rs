@@ -293,7 +293,7 @@ impl MainView {
         self.read_settings(cx)
             .map_or(true, |s| s != self.shared.borrow().settings)
     }
-    fn navigate(&mut self, page: usize, w: &mut Window, cx: &mut Context<Self>) {
+    pub fn navigate(&mut self, page: usize, w: &mut Window, cx: &mut Context<Self>) {
         if self.shared.borrow().saving {
             return;
         }
@@ -531,6 +531,37 @@ impl MainView {
                     )),
             );
         }
+        let ui_tx = self.tx.clone();
+        content = content.child(
+            card()
+                .child(section(
+                    "桌面悬浮窗",
+                    "用小胶囊查看最近提醒。这里的更改即时保存，不影响提醒规则。",
+                ))
+                .child(
+                    Switch::new("floating-enabled")
+                        .label("显示桌面悬浮窗")
+                        .checked(s.ui.floating_enabled)
+                        .disabled(s.ui_saving || s.recovery)
+                        .on_click(move |checked, _, _| {
+                            let _ = ui_tx.try_send(Event::Command(Command::SetFloating(*checked)));
+                        }),
+                )
+                .child(
+                    button(
+                        "floating-reset",
+                        "重置悬浮窗位置",
+                        Command::ResetFloating,
+                        &self.tx,
+                    )
+                    .ghost()
+                    .disabled(s.ui_saving || s.recovery),
+                )
+                .when(s.ui_saving, |d| d.child(caption("正在保存悬浮窗设置…")))
+                .when(!s.ui_error.is_empty(), |d| {
+                    d.child(error_text(s.ui_error.clone()))
+                }),
+        );
         let mut reminders = card().child(section(
             "四件小事",
             "只在工作时段累计间隔，休息时长可分别设置。",
@@ -1102,6 +1133,13 @@ impl Render for MainView {
                 card()
                     .border_color(rgb(DANGER))
                     .child(error_text(s.storage_error.clone())),
+            );
+        }
+        if !s.ui_error.is_empty() && self.page != 1 {
+            body = body.child(
+                card()
+                    .border_color(rgb(DANGER))
+                    .child(error_text(s.ui_error.clone())),
             );
         }
         if s.recovery {

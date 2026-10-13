@@ -180,3 +180,59 @@ pub fn startup_error(message: &str) {
 pub fn is_visible(window: &Window) -> bool {
     ns_window(window).is_ok_and(|w| w.isVisible() && !w.isMiniaturized())
 }
+
+pub fn prepare_floating(window: &Window, menu: bool) -> anyhow::Result<()> {
+    let win = ns_window(window)?;
+    win.setStyleMask(NSWindowStyleMask::Borderless);
+    win.setLevel(if menu { 4 } else { 3 });
+    win.setCollectionBehavior(NSWindowCollectionBehavior::CanJoinAllSpaces);
+    win.setOpaque(false);
+    win.setBackgroundColor(Some(&objc2_app_kit::NSColor::clearColor()));
+    win.setHasShadow(true);
+    win.setHidesOnDeactivate(false);
+    Ok(())
+}
+pub fn show_floating(window: &Window) {
+    if let Ok(win) = ns_window(window) {
+        win.orderFrontRegardless();
+    }
+}
+pub fn position_floating(
+    window: &Window,
+    bounds: gpui_kit::Bounds<gpui_kit::Pixels>,
+    display: &dyn gpui_kit::PlatformDisplay,
+) -> anyhow::Result<()> {
+    let win = ns_window(window)?;
+    let mtm = MainThreadMarker::new().ok_or_else(|| anyhow::anyhow!("非主线程"))?;
+    let screens = objc2_app_kit::NSScreen::screens(mtm);
+    let key = NSString::from_str("NSScreenNumber");
+    let screen = screens
+        .iter()
+        .find(|screen| {
+            screen
+                .deviceDescription()
+                .objectForKey(&key)
+                .is_some_and(|number| {
+                    let id: u32 = unsafe { msg_send![&*number, unsignedIntValue] };
+                    u64::from(id) == u64::from(display.id())
+                })
+        })
+        .ok_or_else(|| anyhow::anyhow!("目标显示器已断开"))?;
+    let screen_frame = screen.frame();
+    // GPUI's macOS bounds are relative to the selected screen, including
+    // visible_bounds. Convert them using that screen, not the primary screen.
+    let top = screen_frame.origin.y + screen_frame.size.height;
+    let frame = objc2_foundation::NSRect::new(
+        objc2_foundation::NSPoint::new(
+            screen_frame.origin.x + f32::from(bounds.origin.x) as f64,
+            top - f32::from(bounds.origin.y) as f64 - f32::from(bounds.size.height) as f64,
+        ),
+        objc2_foundation::NSSize::new(
+            f32::from(bounds.size.width) as f64,
+            f32::from(bounds.size.height) as f64,
+        ),
+    );
+    win.setFrame_display(frame, true);
+    Ok(())
+}
+pub fn refresh_floating_shape(_: &Window) {}

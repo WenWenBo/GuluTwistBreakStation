@@ -33,6 +33,11 @@ pub fn clock() -> ClockSample {
     }
 }
 unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LRESULT {
+    if matches!(msg, WM_DISPLAYCHANGE | WM_SETTINGCHANGE) {
+        if let Some(tx) = SENDER.get() {
+            let _ = tx.try_send(Event::Displays);
+        }
+    }
     if msg == WM_WTSSESSION_CHANGE {
         if w as u32 == WTS_SESSION_LOCK {
             LOCKED.store(true, Ordering::Relaxed);
@@ -234,6 +239,120 @@ pub fn set_window_icon(window: &Window) {
                         icon as isize,
                     );
                 }
+            }
+        }
+    }
+}
+
+fn floating_hwnd(window: &Window) -> anyhow::Result<HWND> {
+    if let RawWindowHandle::Win32(h) = HasWindowHandle::window_handle(window)
+        .map_err(|e| anyhow::anyhow!("{e:?}"))?
+        .as_raw()
+    {
+        Ok(h.hwnd.get() as HWND)
+    } else {
+        anyhow::bail!("窗口类型不受支持")
+    }
+}
+pub fn prepare_floating(window: &Window, _: bool) -> anyhow::Result<()> {
+    let hwnd = floating_hwnd(window)?;
+    unsafe {
+        let style = GetWindowLongPtrW(hwnd, GWL_STYLE) as u32;
+        SetWindowLongPtrW(
+            hwnd,
+            GWL_STYLE,
+            ((style & !(WS_CAPTION | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX)) | WS_POPUP)
+                as isize,
+        );
+        let ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
+        SetWindowLongPtrW(
+            hwnd,
+            GWL_EXSTYLE,
+            ((ex & !WS_EX_APPWINDOW) | WS_EX_TOOLWINDOW) as isize,
+        );
+        if SetWindowPos(
+            hwnd,
+            HWND_TOPMOST,
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED,
+        ) == 0
+        {
+            anyhow::bail!("无法创建悬浮窗口样式");
+        }
+    }
+    refresh_floating_shape(window);
+    Ok(())
+}
+pub fn show_floating(window: &Window) {
+    if let Ok(hwnd) = floating_hwnd(window) {
+        unsafe {
+            ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+        }
+    }
+}
+pub fn position_floating(
+    window: &Window,
+    bounds: gpui_kit::Bounds<gpui_kit::Pixels>,
+    display: &dyn gpui_kit::PlatformDisplay,
+) -> anyhow::Result<()> {
+    use windows_sys::Win32::Graphics::Gdi::*;
+    let hwnd = floating_hwnd(window)?;
+    let mut info = MONITORINFO {
+        cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+        ..unsafe { std::mem::zeroed() }
+    };
+    unsafe {
+        if GetMonitorInfoW(u64::from(display.id()) as HMONITOR, &mut info) == 0 {
+            anyhow::bail!("无法取得屏幕工作区");
+        }
+        let work = display.visible_bounds();
+        let scale = (info.rcWork.right - info.rcWork.left) as f32 / f32::from(work.size.width);
+        let x =
+            info.rcWork.left + (f32::from(bounds.origin.x - work.origin.x) * scale).round() as i32;
+        let y =
+            info.rcWork.top + (f32::from(bounds.origin.y - work.origin.y) * scale).round() as i32;
+        if SetWindowPos(
+            hwnd,
+            HWND_TOPMOST,
+            x,
+            y,
+            (f32::from(bounds.size.width) * scale).round() as i32,
+            (f32::from(bounds.size.height) * scale).round() as i32,
+            SWP_NOACTIVATE,
+        ) == 0
+        {
+            anyhow::bail!("无法移动悬浮窗");
+        }
+    }
+    refresh_floating_shape(window);
+    Ok(())
+}
+pub fn refresh_floating_shape(window: &Window) {
+    use windows_sys::Win32::Graphics::Gdi::*;
+    if let Ok(hwnd) = floating_hwnd(window) {
+        unsafe {
+            let mut r: RECT = std::mem::zeroed();
+            if GetWindowRect(hwnd, &mut r) == 0 {
+                return;
+            }
+            let diameter = if f32::from(window.bounds().size.height) < 100. {
+                r.bottom - r.top
+            } else {
+                (24. * window.scale_factor()) as i32
+            };
+            let region = CreateRoundRectRgn(
+                0,
+                0,
+                r.right - r.left + 1,
+                r.bottom - r.top + 1,
+                diameter,
+                diameter,
+            );
+            if !region.is_null() && SetWindowRgn(hwnd, region, 1) == 0 {
+                DeleteObject(region);
             }
         }
     }

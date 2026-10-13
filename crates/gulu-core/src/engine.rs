@@ -466,6 +466,49 @@ impl Engine {
             .collect()
     }
 
+    pub fn reminder_summary(&self) -> ReminderSummary {
+        // Already delivered notices take precedence over notices waiting for cooldown.
+        for delivered in [true, false] {
+            let kinds: Vec<_> = ReminderKind::ALL.into_iter().filter(|kind| {
+                let i = kind.index();
+                self.settings.reminders[i].enabled
+                    && matches!(self.reminders[i].phase, ReminderPhase::Pending { notified, .. } if notified == delivered)
+            }).collect();
+            if !kinds.is_empty() {
+                return ReminderSummary::Due {
+                    kinds,
+                    notified: delivered,
+                };
+            }
+        }
+        let candidates: Vec<_> = ReminderKind::ALL
+            .into_iter()
+            .filter_map(|kind| {
+                let i = kind.index();
+                if !self.settings.reminders[i].enabled {
+                    return None;
+                }
+                match self.reminders[i].phase {
+                    ReminderPhase::Waiting => Some((kind, self.reminders[i].remaining_ms, false)),
+                    ReminderPhase::Snoozed { remaining_ms, .. } => Some((kind, remaining_ms, true)),
+                    _ => None,
+                }
+            })
+            .collect();
+        let Some(remaining_ms) = candidates.iter().map(|(_, ms, _)| *ms).min() else {
+            return ReminderSummary::None;
+        };
+        let tied: Vec<_> = candidates
+            .into_iter()
+            .filter(|(_, ms, _)| *ms == remaining_ms)
+            .collect();
+        ReminderSummary::Upcoming {
+            kinds: tied.iter().map(|(kind, _, _)| *kind).collect(),
+            remaining_ms,
+            snoozed: tied.iter().all(|(_, _, snoozed)| *snoozed),
+        }
+    }
+
     /// A bounded watchdog also notices missed native events and wall-clock edits.
     pub fn next_wake_ms(&self) -> u64 {
         if let Some(session) = &self.session {

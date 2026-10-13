@@ -1,8 +1,10 @@
 //! Local transactional settings and activity records.
+mod ui_preferences;
 use chrono::{DateTime, Duration, FixedOffset, NaiveDate};
 use gulu_core::{ActivityRecord, BreakSession, Effect, Outcome, Pause, Settings};
 use rusqlite::{Connection, OptionalExtension, params};
 use std::path::Path;
+pub use ui_preferences::*;
 
 #[derive(Debug, thiserror::Error)]
 pub enum StorageError {
@@ -63,6 +65,27 @@ impl Store {
                 .map_err(|e| StorageError::Invalid(e.to_string())),
             None => Ok(Settings::default()),
         }
+    }
+    pub fn ui_preferences(&self) -> Result<UiPreferences> {
+        let prefs: UiPreferences = self
+            .preference("ui_preferences")?
+            .map(|json| serde_json::from_str(&json))
+            .transpose()?
+            .unwrap_or_default();
+        prefs
+            .validate()
+            .map_err(|e| StorageError::Invalid(e.into()))?;
+        Ok(prefs)
+    }
+    pub fn save_ui_preferences(&self, prefs: &UiPreferences) -> Result<()> {
+        prefs
+            .validate()
+            .map_err(|e| StorageError::Invalid(e.into()))?;
+        self.connection.execute(
+            "INSERT OR REPLACE INTO preferences VALUES ('ui_preferences',?1)",
+            [serde_json::to_string(prefs)?],
+        )?;
+        Ok(())
     }
     pub fn settings_backup(&self) -> Result<Option<Settings>> {
         self.preference("settings_backup")?
@@ -180,6 +203,65 @@ impl Store {
 mod tests {
     use super::*;
     use gulu_core::{ClockSample, Engine, ReminderKind};
+
+    #[test]
+    fn ui_preferences_are_independent_and_survive_reopen() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("prefs.db");
+        let mut store = Store::open(&path).unwrap();
+        assert_eq!(store.ui_preferences().unwrap(), UiPreferences::default());
+        store.save_settings(&Settings::default()).unwrap();
+        store.save_pause(&Pause::Manual).unwrap();
+        let prefs = UiPreferences {
+            floating_enabled: true,
+            floating_position: Some(FloatingPosition {
+                display_uuid: Some("test-screen".into()),
+                x: -10.,
+                y: 60.,
+            }),
+            ..Default::default()
+        };
+        store.save_ui_preferences(&prefs).unwrap();
+        drop(store);
+        let store = Store::open(&path).unwrap();
+        assert_eq!(store.ui_preferences().unwrap(), prefs);
+        assert_eq!(store.settings().unwrap(), Settings::default());
+        assert!(store.settings_backup().unwrap().is_none());
+        assert_eq!(store.pause().unwrap(), Pause::Manual);
+    }
+    #[test]
+    fn invalid_or_unwritable_ui_preferences_preserve_existing_data() {
+        let store = Store::memory().unwrap();
+        store
+            .save_ui_preferences(&UiPreferences::default())
+            .unwrap();
+        let future = UiPreferences {
+            schema_version: 2,
+            ..Default::default()
+        };
+        assert!(store.save_ui_preferences(&future).is_err());
+        assert_eq!(store.ui_preferences().unwrap(), UiPreferences::default());
+        store
+            .connection
+            .execute_batch("PRAGMA query_only=ON")
+            .unwrap();
+        assert!(
+            store
+                .save_ui_preferences(&UiPreferences {
+                    floating_enabled: true,
+                    ..Default::default()
+                })
+                .is_err()
+        );
+        assert_eq!(store.ui_preferences().unwrap(), UiPreferences::default());
+        store.connection.execute_batch("PRAGMA query_only=OFF; UPDATE preferences SET value='broken' WHERE key='ui_preferences'").unwrap();
+        assert!(store.ui_preferences().is_err());
+        assert_eq!(store.settings().unwrap(), Settings::default());
+        assert_eq!(
+            store.preference("ui_preferences").unwrap().as_deref(),
+            Some("broken")
+        );
+    }
 
     fn clock() -> ClockSample {
         ClockSample {
