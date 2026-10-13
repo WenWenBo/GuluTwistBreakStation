@@ -1,10 +1,31 @@
 name: Desktop builds
-on: [push, pull_request, workflow_dispatch]
+on:
+  push:
+    branches:
+      - release
+
+permissions:
+  contents: read
+
 jobs:
   verify:
+    name: Build ${{ matrix.platform }}
     strategy:
+      fail-fast: false
       matrix:
-        os: [macos-15, windows-2022]
+        include:
+          - platform: macos-arm64
+            os: macos-15
+            target: aarch64-apple-darwin
+            artifact-path: dist/GuluTwist-*-build*-aarch64-apple-darwin.zip
+          - platform: macos-intel
+            os: macos-15-intel
+            target: x86_64-apple-darwin
+            artifact-path: dist/GuluTwist-*-build*-x86_64-apple-darwin.zip
+          - platform: windows-x64
+            os: windows-2022
+            target: x86_64-pc-windows-msvc
+            artifact-path: dist/GuluTwist-*-Windows-x64-portable.zip
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -12,15 +33,17 @@ jobs:
         with:
           toolchain: 1.97.1
           components: rustfmt, clippy
+          targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all --check
       - run: cargo test --workspace --locked
       - run: cargo check --workspace --locked
       - if: runner.os == 'macOS'
-        run: scripts/package-macos.sh aarch64-apple-darwin
+        run: scripts/package-macos.sh ${{ matrix.target }}
       - if: runner.os == 'Windows'
         run: ./scripts/package-windows.ps1 -SkipInstaller
       - uses: actions/upload-artifact@v4
         with:
-          name: desktop-${{ runner.os }}
-          path: dist/*.zip
+          name: desktop-${{ matrix.platform }}
+          path: ${{ matrix.artifact-path }}
+          if-no-files-found: error
