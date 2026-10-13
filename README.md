@@ -34,12 +34,20 @@ Windows 在装有 Visual Studio 2022 C++ Build Tools 和 Windows SDK 的机器�
 
 ## 开发与检查
 
+macOS 开发时，在项目根目录（包含 `Cargo.toml` 的目录）执行：
+
 ```bash
-cargo run -p gulu-app
-scripts/check.sh
+./scripts/dev.sh
+./scripts/check.sh
 ```
 
-`cargo run` 不提供 macOS 通知身份，通知请使用 `.app`。独立测试数据与可选诊断：
+`./scripts/dev.sh` 会编译并启动开发版，默认将测试设置和记录保存到 `dist/dev-data`，同时开启终端诊断日志。也可通过 `GULU_DATA_DIR` 指定其它测试数据目录。
+
+启动脚本会自动切到项目根目录，因此也支持从任意目录通过脚本的绝对路径执行。
+
+修改代码后需退出应用，再次执行启动命令；目前不支持热更新。在启动终端按 `Ctrl+C` 或从应用托盘退出即可停止。关闭主窗口只会隐藏窗口；同一数据目录已有实例时，再次启动只会激活旧实例。
+
+开发启动不提供 macOS 通知身份，验证系统通知请使用 `.app`。打包应用也可使用独立测试数据与诊断日志：
 
 ```bash
 GULU_DATA_DIR="$PWD/dist/manual-test" GULU_DIAGNOSTICS=1 \
