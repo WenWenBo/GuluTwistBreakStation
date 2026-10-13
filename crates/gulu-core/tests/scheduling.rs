@@ -12,10 +12,10 @@ fn clock(s: u64) -> ClockSample {
 fn engine(mode: ReminderMode) -> Engine {
     let mut s = Settings {
         onboarded: true,
-        mode,
         ..Default::default()
     };
     for r in &mut s.reminders {
+        r.mode = mode;
         r.interval_minutes = 5;
         r.break_seconds = 30;
     }
@@ -42,10 +42,12 @@ fn compact_summary_orders_real_times_and_snoozes_without_mutating() {
         ReminderKind::Stretch,
         ReminderKind::Walk,
         ReminderKind::Stand,
+        ReminderKind::EyeCare,
     ] {
         let id = e.instance(kind).unwrap().id;
         e.respond(id, Response::Complete, clock(300));
     }
+    e.settings.reminders[4].enabled = false;
     e.reminders[1].remaining_ms = 300_001;
     e.settings.reminders[2].enabled = false;
     e.reminders[2].remaining_ms = 1;
@@ -108,10 +110,13 @@ fn merged_session_max_not_sum_and_intervals_freeze() {
     let effects = e.tick(clock(301));
     assert!(matches!(effects[0], Effect::OpenBreak(_)));
     let s = e.session.as_ref().unwrap();
-    assert_eq!(s.items.len(), 4);
+    assert_eq!(s.items.len(), ReminderKind::COUNT);
     assert_eq!(s.duration_seconds, 60);
     assert!(e.tick(clock(340)).is_empty());
-    assert_eq!(records(&e.tick(clock(361))), vec![Outcome::Timed; 4]);
+    assert_eq!(
+        records(&e.tick(clock(361))),
+        vec![Outcome::Timed; ReminderKind::COUNT]
+    );
     assert!(e.session.is_none());
     assert_eq!(e.reminders[0].remaining_ms, 300_000);
 }
@@ -136,7 +141,7 @@ fn sleep_break_completes_at_deadline_once() {
     let mut c = clock(500);
     c.awake_ms = 302_000;
     let effects = e.tick(c);
-    assert_eq!(records(&effects), vec![Outcome::Timed; 4]);
+    assert_eq!(records(&effects), vec![Outcome::Timed; ReminderKind::COUNT]);
     if let Effect::Record(r) = &effects[1] {
         assert_eq!(r.ended_at, clock(331).wall);
     }
@@ -162,7 +167,7 @@ fn boundary_wins_tie_and_sleep_orders_events() {
         e.tick(clock(330));
         let mut c = clock(400);
         c.awake_ms = 331_000;
-        assert_eq!(records(&e.tick(c)), vec![outcome; 4]);
+        assert_eq!(records(&e.tick(c)), vec![outcome; ReminderKind::COUNT]);
     }
 }
 #[test]
@@ -172,10 +177,13 @@ fn wall_edit_does_not_extend_rest() {
     e.tick(clock(301));
     let mut c = clock(331);
     c.wall = clock(1).wall;
-    assert_eq!(records(&e.tick(c)), vec![Outcome::Timed; 4]);
+    assert_eq!(
+        records(&e.tick(c)),
+        vec![Outcome::Timed; ReminderKind::COUNT]
+    );
 }
 #[test]
-fn gentle_expiry_and_duplicate_callback() {
+fn gentle_stays_pending_and_duplicate_callback_is_ignored() {
     let mut e = engine(ReminderMode::Gentle);
     let effects = e.tick(clock(300));
     assert!(matches!(effects[0], Effect::Notify(_)));
@@ -185,7 +193,8 @@ fn gentle_expiry_and_duplicate_callback() {
         vec![Outcome::Manual]
     );
     assert!(e.respond(id, Response::Complete, clock(310)).is_empty());
-    assert_eq!(records(&e.tick(clock(420))), vec![Outcome::Expired; 3]);
+    assert!(e.tick(clock(420)).is_empty());
+    assert_eq!(e.pending().len(), ReminderKind::COUNT - 1);
 }
 #[test]
 fn snooze_freezes_in_pause() {
@@ -204,13 +213,15 @@ fn snooze_freezes_in_pause() {
     );
 }
 #[test]
-fn lock_does_not_subtract_elapsed_from_reset_pending() {
+fn lock_preserves_gentle_pending() {
     let mut e = engine(ReminderMode::Gentle);
     e.tick(clock(300));
+    let id = e.pending()[0].id;
     let mut c = clock(310);
     c.locked = true;
     e.tick(c);
-    assert_eq!(e.reminders[0].remaining_ms, 300_000);
+    assert_eq!(e.pending()[0].id, id);
+    assert_eq!(e.reminders[0].remaining_ms, 0);
 }
 #[test]
 fn failed_overlay_snooze_stays_gentle() {
@@ -273,10 +284,12 @@ fn config_changes_cancel_old_instances() {
     e.tick(clock(300));
     let id = e.pending()[0].id;
     let mut s = e.settings.clone();
-    s.mode = ReminderMode::Strong;
+    for r in &mut s.reminders {
+        r.interval_minutes = 6;
+    }
     assert_eq!(
         records(&e.replace_settings(s, clock(310)).unwrap()),
-        vec![Outcome::Cancelled; 4]
+        vec![Outcome::Cancelled; ReminderKind::COUNT]
     );
     assert!(e.respond(id, Response::Complete, clock(311)).is_empty());
 }
@@ -287,7 +300,7 @@ fn pause_at_exact_deadline_cancels() {
     e.tick(clock(301));
     assert_eq!(
         records(&e.set_pause(Pause::Manual, clock(331))),
-        vec![Outcome::Cancelled; 4]
+        vec![Outcome::Cancelled; ReminderKind::COUNT]
     );
 }
 #[test]
@@ -309,28 +322,24 @@ fn wall_clock_rollback_moves_boundary_but_not_rest_deadline() {
     c.continuous_ms = 390_000;
     c.awake_ms = 390_000;
     c.wall = clock(140).wall;
-    assert_eq!(records(&e.tick(c)), vec![Outcome::Timed; 4]);
+    assert_eq!(
+        records(&e.tick(c)),
+        vec![Outcome::Timed; ReminderKind::COUNT]
+    );
 }
 #[test]
-fn notification_cooldown_batches_later_items() {
+fn gentle_items_appear_on_time_without_notification_cooldown() {
     let mut e = engine(ReminderMode::Gentle);
     e.reminders[1].remaining_ms = 330_000;
     e.reminders[2].remaining_ms = 340_000;
-    assert_eq!(
-        e.tick(clock(300))
-            .iter()
-            .filter(|e| matches!(e, Effect::Notify(_)))
-            .count(),
-        1
-    );
-    assert!(e.tick(clock(330)).is_empty());
-    assert!(e.tick(clock(340)).is_empty());
-    let effects = e.tick(clock(360));
-    if let Effect::Notify(items) = &effects[0] {
-        assert_eq!(items.len(), 2);
-    } else {
-        panic!("missing summary");
+    e.tick(clock(300));
+    for (time, kind) in [(330, ReminderKind::Stretch), (340, ReminderKind::Walk)] {
+        let effects = e.tick(clock(time));
+        assert!(
+            matches!(&effects[0], Effect::Notify(items) if items.len() == 1 && items[0].kind == kind)
+        );
     }
+    assert!(e.tick(clock(360)).is_empty());
 }
 #[test]
 fn interrupt_resets_merged_and_buffers_other_items() {
@@ -340,7 +349,7 @@ fn interrupt_resets_merged_and_buffers_other_items() {
     e.tick(clock(301));
     assert_eq!(
         records(&e.interrupt(clock(305))),
-        vec![Outcome::Interrupted; 3]
+        vec![Outcome::Interrupted; ReminderKind::COUNT - 1]
     );
     assert_eq!(e.reminders[3].remaining_ms, 60_000);
     assert!(e.tick(clock(306)).is_empty());
@@ -349,7 +358,10 @@ fn interrupt_resets_merged_and_buffers_other_items() {
 fn next_work_period_discards_old_instances() {
     let mut e = engine(ReminderMode::Gentle);
     e.tick(clock(300));
-    assert_eq!(records(&e.tick(clock(10800))), vec![Outcome::Cancelled; 4]);
+    assert_eq!(
+        records(&e.tick(clock(10800))),
+        vec![Outcome::Cancelled; ReminderKind::COUNT]
+    );
     e.tick(clock(14400));
     assert_eq!(e.reminders[0].remaining_ms, 300_000);
 }
@@ -382,10 +394,14 @@ fn mixed_event_sequences_never_commit_instance_twice() {
             1 => e.interrupt(now),
             2 => e.set_pause(Pause::Manual, now),
             3 => e.set_pause(Pause::None, now),
-            4 => e.manual_complete(ReminderKind::ALL[(seed % 4) as usize], now),
+            4 => e.manual_complete(
+                ReminderKind::ALL[(seed % ReminderKind::COUNT as u64) as usize],
+                now,
+            ),
             5 => {
                 let mut s = e.settings.clone();
-                s.mode = if s.mode == ReminderMode::Strong {
+                let r = &mut s.reminders[(seed % ReminderKind::COUNT as u64) as usize];
+                r.mode = if r.mode == ReminderMode::Strong {
                     ReminderMode::Gentle
                 } else {
                     ReminderMode::Strong
@@ -413,7 +429,7 @@ fn mixed_event_sequences_never_commit_instance_twice() {
                 .map(|i| i.kind)
                 .collect::<std::collections::HashSet<_>>();
             assert_eq!(kinds.len(), s.items.len());
-            assert!(s.items.len() <= 4);
+            assert!(s.items.len() <= ReminderKind::COUNT);
             assert_eq!(
                 s.duration_seconds,
                 s.items.iter().map(|i| i.break_seconds).max().unwrap()
@@ -431,7 +447,10 @@ fn changing_duration_only_affects_next_instance() {
     s.reminders[0].break_seconds = 1800;
     e.replace_settings(s, clock(305)).unwrap();
     assert_eq!(e.session.as_ref().unwrap().deadline_ms, before.deadline_ms);
-    assert_eq!(records(&e.tick(clock(331))), vec![Outcome::Timed; 4]);
+    assert_eq!(
+        records(&e.tick(clock(331))),
+        vec![Outcome::Timed; ReminderKind::COUNT]
+    );
 }
 #[test]
 fn next_selected_workday_skips_today_and_weekend() {
@@ -465,4 +484,124 @@ fn preview_does_not_consume_interval_or_write_records() {
     assert_eq!(e.reminders[0].remaining_ms, 200_000);
     e.tick(clock(106));
     assert_eq!(e.reminders[0].remaining_ms, 199_000);
+}
+
+#[test]
+fn default_eye_care_is_twenty_minutes_twenty_seconds_and_others_are_gentle() {
+    let s = Settings::default();
+    let eye = &s.reminders[ReminderKind::EyeCare.index()];
+    assert!(eye.enabled);
+    assert_eq!(
+        (eye.interval_minutes, eye.break_seconds, eye.mode),
+        (20, 20, ReminderMode::Strong)
+    );
+    assert!(
+        s.reminders[..4]
+            .iter()
+            .all(|r| r.mode == ReminderMode::Gentle)
+    );
+    let mut e = Engine::new(
+        Settings {
+            onboarded: true,
+            ..s
+        },
+        clock(0),
+        Pause::None,
+    )
+    .unwrap();
+    e.tick(clock(1200));
+    e.tick(clock(1201));
+    let session = e.session.as_ref().unwrap();
+    assert_eq!(session.items.len(), 1);
+    assert_eq!(session.items[0].kind, ReminderKind::EyeCare);
+    assert_eq!(session.duration_seconds, 20);
+    let effects = e.tick(clock(1221));
+    assert_eq!(records(&effects), vec![Outcome::Timed]);
+}
+
+#[test]
+fn mixed_due_items_only_force_eye_care_and_restore_gentle_todo() {
+    let mut e = engine(ReminderMode::Gentle);
+    e.settings.reminders[4].mode = ReminderMode::Strong;
+    e.settings.reminders[4].break_seconds = 20;
+    let notices = e.tick(clock(300));
+    assert!(matches!(&notices[0], Effect::Notify(items) if items.len() == 4));
+    let water = e.instance(ReminderKind::Water).unwrap().id;
+    e.tick(clock(301));
+    assert_eq!(e.session.as_ref().unwrap().items.len(), 1);
+    assert_eq!(
+        e.session.as_ref().unwrap().items[0].kind,
+        ReminderKind::EyeCare
+    );
+    assert_eq!(records(&e.tick(clock(321))), vec![Outcome::Timed]);
+    assert_eq!(e.instance(ReminderKind::Water).unwrap().id, water);
+    assert_eq!(e.pending().len(), 4);
+    assert!(
+        matches!(e.upcoming_summary(), ReminderSummary::Upcoming { kinds, remaining_ms: 300_000, .. } if kinds == vec![ReminderKind::EyeCare])
+    );
+    assert_eq!(
+        records(&e.respond(water, Response::Complete, clock(322))),
+        vec![Outcome::Manual]
+    );
+    assert_eq!(e.reminders[0].remaining_ms, 300_000);
+    assert_eq!(e.pending().len(), 3);
+    assert!(e.respond(water, Response::Complete, clock(323)).is_empty());
+}
+
+#[test]
+fn gentle_todos_survive_lock_sleep_pause_but_end_at_work_boundary_and_exit() {
+    let mut e = engine(ReminderMode::Gentle);
+    e.tick(clock(300));
+    let ids: Vec<_> = e.pending().iter().map(|i| i.id).collect();
+    let mut locked = clock(310);
+    locked.locked = true;
+    assert!(e.tick(locked).is_empty());
+    let mut resumed = clock(900);
+    resumed.awake_ms = 310_000;
+    assert!(e.tick(resumed).is_empty());
+    assert!(e.set_pause(Pause::Manual, resumed).is_empty());
+    e.tick(clock(3600));
+    e.set_pause(Pause::None, clock(3601));
+    assert_eq!(e.pending().iter().map(|i| i.id).collect::<Vec<_>>(), ids);
+    assert!(e.next_wake_ms() >= 1000);
+    assert_eq!(
+        records(&e.tick(clock(10800))),
+        vec![Outcome::Cancelled; ReminderKind::COUNT]
+    );
+    assert!(e.pending().is_empty());
+    assert!(
+        e.respond(ids[0], Response::Complete, clock(10801))
+            .is_empty()
+    );
+    let mut e = engine(ReminderMode::Gentle);
+    e.tick(clock(300));
+    assert_eq!(
+        records(&e.shutdown(clock(310))),
+        vec![Outcome::Cancelled; ReminderKind::COUNT]
+    );
+    assert!(e.pending().is_empty());
+    let restarted = Engine::new(e.settings, clock(320), Pause::None).unwrap();
+    assert!(restarted.pending().is_empty());
+    assert_eq!(restarted.reminders[0].remaining_ms, 300_000);
+}
+
+#[test]
+fn mode_changes_apply_to_next_instance_and_eye_can_be_gentle() {
+    let mut e = engine(ReminderMode::Gentle);
+    e.tick(clock(300));
+    let water = e.instance(ReminderKind::Water).unwrap().id;
+    assert!(e.instance(ReminderKind::EyeCare).unwrap().gentle);
+    let mut settings = e.settings.clone();
+    settings.reminders[0].mode = ReminderMode::Strong;
+    assert!(e.replace_settings(settings, clock(301)).unwrap().is_empty());
+    assert!(e.instance(ReminderKind::Water).unwrap().gentle);
+    e.respond(water, Response::Complete, clock(302));
+    e.tick(clock(602));
+    e.tick(clock(603));
+    assert_eq!(e.session.as_ref().unwrap().items.len(), 1);
+    assert_eq!(
+        e.session.as_ref().unwrap().items[0].kind,
+        ReminderKind::Water
+    );
+    assert!(e.instance(ReminderKind::EyeCare).unwrap().gentle);
 }

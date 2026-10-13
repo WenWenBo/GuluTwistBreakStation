@@ -21,16 +21,19 @@ const PAPER: u32 = 0xf7f7f2;
 const REST: u32 = 0xeaf1e9;
 const LINE: u32 = 0xdde5dc;
 const DANGER: u32 = 0xa34237;
-const CATEGORY_COLORS: [u32; 4] = [0xe8f2f6, 0xefeaf6, 0xf8eedc, 0xe8f0df];
+const CATEGORY_COLORS: [u32; ReminderKind::COUNT] =
+    [0xe8f2f6, 0xefeaf6, 0xf8eedc, 0xe8f0df, 0xe4f1ef];
 const NAV: [&str; 4] = ["我的小站", "提醒设置", "今日记录", "关于小站"];
 const NAV_ICONS: [&str; 4] = ["home", "settings", "records", "about"];
-const KIND_ICONS: [&str; 4] = ["water", "stretch", "walk", "stand"];
+pub(crate) const KIND_ICONS: [&str; ReminderKind::COUNT] =
+    ["water", "stretch", "walk", "stand", "eye"];
 
 pub fn duration(s: u64) -> String {
     format!("{:02}:{:02}", s / 60, s % 60)
 }
-fn icon(name: &str) -> Icon {
+pub(crate) fn icon(name: &str) -> Icon {
     let bytes: &[u8] = match name {
+        "eye" => include_bytes!("../../../assets/ui/eye.svg"),
         "water" => include_bytes!("../../../assets/ui/water.svg"),
         "stretch" => include_bytes!("../../../assets/ui/stretch.svg"),
         "walk" => include_bytes!("../../../assets/ui/walk.svg"),
@@ -156,9 +159,9 @@ pub struct MainView {
     tx: Sender<Event>,
     page: usize,
     form: Settings,
-    intervals: [Entity<InputState>; 4],
-    minutes: [Entity<InputState>; 4],
-    seconds: [Entity<InputState>; 4],
+    intervals: [Entity<InputState>; ReminderKind::COUNT],
+    minutes: [Entity<InputState>; ReminderKind::COUNT],
+    seconds: [Entity<InputState>; ReminderKind::COUNT],
     periods: Vec<(Entity<InputState>, Entity<InputState>)>,
     error: String,
     confirm_clear: bool,
@@ -229,7 +232,7 @@ impl MainView {
     }
     fn reset_form(&mut self, w: &mut Window, cx: &mut Context<Self>) {
         self.form = self.shared.borrow().settings.clone();
-        for i in 0..4 {
+        for i in 0..ReminderKind::COUNT {
             self.intervals[i].update(cx, |s, cx| {
                 s.set_value(self.form.reminders[i].interval_minutes.to_string(), w, cx)
             });
@@ -259,6 +262,14 @@ impl MainView {
         self.save_destination = None;
     }
     fn reminder_values(&self, i: usize, cx: &App) -> Result<(u32, u32), String> {
+        if self.form.reminders[i].mode == ReminderMode::Gentle {
+            let seconds = self.form.reminders[i].break_seconds;
+            return parse_reminder(
+                self.intervals[i].read(cx).value().as_ref(),
+                &(seconds / 60).to_string(),
+                &(seconds % 60).to_string(),
+            );
+        }
         parse_reminder(
             self.intervals[i].read(cx).value().as_ref(),
             self.minutes[i].read(cx).value().as_ref(),
@@ -460,7 +471,14 @@ impl MainView {
                                     .justify_center()
                                     .child(icon(KIND_ICONS[i])),
                             )
-                            .child(heading(kind.title())),
+                            .child(heading(kind.title()))
+                            .child(badge(
+                                if s.settings.reminders[i].mode == ReminderMode::Strong {
+                                    "全屏"
+                                } else {
+                                    "轻提醒"
+                                },
+                            )),
                     )
                     .child(
                         div()
@@ -505,7 +523,7 @@ impl MainView {
             .child(cards)
             .child(caption("锁屏、睡眠或休息时，提醒间隔会暂停。"))
     }
-    fn settings(&self, narrow: bool, cx: &mut Context<Self>) -> Div {
+    fn settings(&self, _narrow: bool, cx: &mut Context<Self>) -> Div {
         let s = self.shared.borrow();
         let mut content = div().v_flex().gap_5();
         if !s.settings.onboarded {
@@ -527,7 +545,7 @@ impl MainView {
                             ),
                     )
                     .child(caption(
-                        "默认强制休息，可随时紧急退出。确认开始前不会自动提醒。",
+                        "护眼默认全屏 20 秒，其余用轻提醒。每项都可调整，确认开始后才计时。",
                     )),
             );
         }
@@ -536,7 +554,7 @@ impl MainView {
             card()
                 .child(section(
                     "桌面悬浮窗",
-                    "用小胶囊查看最近提醒。这里的更改即时保存，不影响提醒规则。",
+                    "关闭后，到期仍会显示独立提醒条。需要停止提醒时，请使用暂停。",
                 ))
                 .child(
                     Switch::new("floating-enabled")
@@ -563,90 +581,118 @@ impl MainView {
                 }),
         );
         let mut reminders = card().child(section(
-            "四件小事",
-            "只在工作时段累计间隔，休息时长可分别设置。",
+            "五件小事",
+            "每项独立选择提醒方式；轻提醒勾选完成，全屏休息按时结束。",
         ));
         for kind in ReminderKind::ALL {
             let i = kind.index();
-            let enabled = self.form.reminders[i].enabled;
-            let disabled = !enabled || s.saving;
+            let config = &self.form.reminders[i];
+            let disabled = !config.enabled || s.saving;
             let mut row = div()
                 .id(("reminder-form", i))
                 .v_flex()
-                .gap_2()
-                .py_2()
-                .border_t_1()
-                .border_color(rgb(LINE));
-            let name = div()
-                .flex()
-                .items_center()
-                .gap_2()
-                .w(px(if narrow { 180. } else { 130. }))
-                .flex_shrink_0()
-                .child(icon(KIND_ICONS[i]))
-                .child(
-                    Switch::new(("enabled", i))
-                        .checked(enabled)
-                        .label(kind.title())
-                        .disabled(s.saving)
-                        .on_click(cx.listener(move |this, checked, _, cx| {
-                            this.form.reminders[i].enabled = *checked;
-                            cx.notify();
-                        })),
-                );
-            let fields = div()
-                .flex()
                 .gap_3()
-                .items_end()
+                .py_3()
+                .border_t_1()
+                .border_color(rgb(LINE))
                 .child(
                     div()
-                        .v_flex()
-                        .gap_1()
-                        .w(px(94.))
-                        .child(caption("间隔 · 分钟"))
+                        .flex()
+                        .items_center()
+                        .flex_wrap()
+                        .gap_3()
+                        .child(icon(KIND_ICONS[i]))
                         .child(
-                            Input::new(&self.intervals[i])
-                                .aria_label(format!("{}间隔分钟", kind.title()))
-                                .disabled(disabled),
+                            Switch::new(("enabled", i))
+                                .checked(config.enabled)
+                                .label(kind.title())
+                                .disabled(s.saving)
+                                .on_click(cx.listener(move |this, checked, _, cx| {
+                                    this.form.reminders[i].enabled = *checked;
+                                    cx.notify();
+                                })),
+                        )
+                        .child(div().flex_1())
+                        .children(
+                            [
+                                (ReminderMode::Gentle, "轻提醒"),
+                                (ReminderMode::Strong, "全屏休息"),
+                            ]
+                            .into_iter()
+                            .enumerate()
+                            .map(|(index, (mode, label))| {
+                                Button::new(("item-mode", i * 2 + index))
+                                    .label(label)
+                                    .small()
+                                    .outline()
+                                    .accessibility_label(format!("{}，{}", kind.title(), label))
+                                    .selected(config.mode == mode)
+                                    .disabled(disabled)
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.form.reminders[i].mode = mode;
+                                        cx.notify();
+                                    }))
+                            }),
                         ),
                 )
                 .child(
                     div()
-                        .v_flex()
-                        .gap_1()
-                        .child(caption("休息 · 分 / 秒"))
+                        .flex()
+                        .flex_wrap()
+                        .items_end()
+                        .gap_3()
                         .child(
                             div()
-                                .flex()
-                                .items_center()
-                                .gap_2()
+                                .v_flex()
+                                .gap_1()
+                                .w(px(94.))
+                                .child(caption("间隔 · 分钟"))
                                 .child(
-                                    div().w(px(62.)).child(
-                                        Input::new(&self.minutes[i])
-                                            .aria_label(format!("{}休息分钟", kind.title()))
-                                            .disabled(disabled),
+                                    Input::new(&self.intervals[i])
+                                        .aria_label(format!("{}间隔分钟", kind.title()))
+                                        .disabled(disabled),
+                                ),
+                        )
+                        .when(config.mode == ReminderMode::Strong, |d| {
+                            d.child(
+                                div()
+                                    .v_flex()
+                                    .gap_1()
+                                    .child(caption("全屏休息 · 分 / 秒"))
+                                    .child(
+                                        div()
+                                            .flex()
+                                            .items_center()
+                                            .gap_2()
+                                            .child(
+                                                div().w(px(62.)).child(
+                                                    Input::new(&self.minutes[i])
+                                                        .aria_label(format!(
+                                                            "{}休息分钟",
+                                                            kind.title()
+                                                        ))
+                                                        .disabled(disabled),
+                                                ),
+                                            )
+                                            .child(caption("分"))
+                                            .child(
+                                                div().w(px(62.)).child(
+                                                    Input::new(&self.seconds[i])
+                                                        .aria_label(format!(
+                                                            "{}休息秒",
+                                                            kind.title()
+                                                        ))
+                                                        .disabled(disabled),
+                                                ),
+                                            )
+                                            .child(caption("秒")),
                                     ),
-                                )
-                                .child(caption("分"))
-                                .child(
-                                    div().w(px(62.)).child(
-                                        Input::new(&self.seconds[i])
-                                            .aria_label(format!("{}休息秒", kind.title()))
-                                            .disabled(disabled),
-                                    ),
-                                )
-                                .child(caption("秒")),
-                        ),
+                            )
+                        })
+                        .when(config.mode == ReminderMode::Gentle, |d| {
+                            d.child(caption("到期显示提醒条，勾选后开始下一轮。"))
+                        }),
                 );
-            row = row.child(
-                div()
-                    .flex()
-                    .when(narrow, |d| d.flex_col())
-                    .when(!narrow, |d| d.items_center())
-                    .gap_3()
-                    .child(name)
-                    .child(fields),
-            );
             if let Err(e) = self.reminder_values(i, cx) {
                 row = row.child(error_text(e));
             }
@@ -746,59 +792,10 @@ impl MainView {
         content = content.child(work);
         content.child(
             card()
-                .child(section("提醒方式", "选择适合今天节奏的提醒方式。"))
-                .child(
-                    div()
-                        .grid()
-                        .grid_cols(if narrow { 1 } else { 2 })
-                        .gap_3()
-                        .child(
-                            div()
-                                .v_flex()
-                                .gap_2()
-                                .p_3()
-                                .bg(rgb(if self.form.mode == ReminderMode::Strong {
-                                    REST
-                                } else {
-                                    PAPER
-                                }))
-                                .rounded_lg()
-                                .child(
-                                    Button::new("strong")
-                                        .label("强制休息")
-                                        .selected(self.form.mode == ReminderMode::Strong)
-                                        .disabled(s.saving)
-                                        .on_click(cx.listener(|this, _, _, cx| {
-                                            this.form.mode = ReminderMode::Strong;
-                                            cx.notify();
-                                        })),
-                                )
-                                .child(caption("覆盖所有屏幕并倒计时，始终可以紧急退出。")),
-                        )
-                        .child(
-                            div()
-                                .v_flex()
-                                .gap_2()
-                                .p_3()
-                                .bg(rgb(if self.form.mode == ReminderMode::Gentle {
-                                    REST
-                                } else {
-                                    PAPER
-                                }))
-                                .rounded_lg()
-                                .child(
-                                    Button::new("gentle")
-                                        .label("轻提醒")
-                                        .selected(self.form.mode == ReminderMode::Gentle)
-                                        .disabled(s.saving)
-                                        .on_click(cx.listener(|this, _, _, cx| {
-                                            this.form.mode = ReminderMode::Gentle;
-                                            cx.notify();
-                                        })),
-                                )
-                                .child(caption("发送系统通知，在小站完成、稍后或跳过。")),
-                        ),
-                )
+                .child(section(
+                    "体验与通知",
+                    "全屏休息始终可以紧急退出；提醒条不可用时使用系统通知。",
+                ))
                 .child(
                     div()
                         .flex()
@@ -1202,11 +1199,7 @@ impl Render for MainView {
                                 Button::new("mode-settings")
                                     .ghost()
                                     .small()
-                                    .label(if s.settings.mode == ReminderMode::Strong {
-                                        "强制休息"
-                                    } else {
-                                        "轻提醒"
-                                    })
+                                    .label("按事项提醒")
                                     .tooltip("调整提醒方式")
                                     .on_click(
                                         cx.listener(|this, _, w, cx| this.navigate(1, w, cx)),

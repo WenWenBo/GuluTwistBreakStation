@@ -1,0 +1,51 @@
+dock_icon=embedded-small-gulu size=CGSize { width: 192.0, height: 192.0 }
+2026-10-13T20:47:26.279024+08:00 command=OpenHome
+2026-10-13T20:48:25.139472+08:00 command=Save(Settings { schema_version: 2, onboarded: true, reminders: [ReminderConfig { mode: Gentle, enabled: true, interval_minutes: 5, break_seconds: 30 }, ReminderConfig { mode: Gentle, enabled: true, interval_minutes: 5, break_seconds: 60 }, ReminderConfig { mode: Gentle, enabled: true, interval_minutes: 5, break_seconds: 180 }, ReminderConfig { mode: Gentle, enabled: true, interval_minutes: 5, break_seconds: 120 }, ReminderConfig { mode: Strong, enabled: true, interval_minutes: 5, break_seconds: 20 }], weekdays: [true, true, true, true, true, true, true], periods: [WorkPeriod { start: 0, end: 1440 }] })
+2026-10-13T20:51:04.130743+08:00 command=Hide
+2026-10-13T20:51:14.830944+08:00 command=Hide
+2026-10-13T20:51:54.373581+08:00 effects=[Notify([Instance { id: e15a909a-e8d5-48f7-ba01-7080ab6a1f0a, kind: Water, break_seconds: 30, created_at: 2026-10-13T20:51:54.373552+08:00, gentle: true }, Instance { id: 956ed74a-9dc2-4982-8be8-f0a2f3d1447c, kind: Stretch, break_seconds: 60, created_at: 2026-10-13T20:51:54.373552+08:00, gentle: true }, Instance { id: acae917b-a763-4e15-b288-87c82940d9ed, kind: Walk, break_seconds: 180, created_at: 2026-10-13T20:51:54.373552+08:00, gentle: true }, Instance { id: e8203349-2a3a-4650-a0dc-eb148b16cfe5, kind: Stand, break_seconds: 120, created_at: 2026-10-13T20:51:54.373552+08:00, gentle: true }])]
+2026-10-13T20:53:26.221324+08:00 effects=[OpenBreak(BreakSession { id: a7b28496-31f5-493d-bab7-bace821d3203, items: [Instance { id: 0653844f-0ff1-4b1f-9fd1-b4bf19892c86, kind: EyeCare, break_seconds: 20, created_at: 2026-10-13T20:53:25.171766+08:00, gentle: false }], started_at: 2026-10-13T20:53:26.221225+08:00, deadline_ms: 1337519133, work_end_ms: 1348692911, duration_seconds: 20 })]
+overlay_count=3 deadline_ms=1337519133
+2026-10-13T20:53:46.271205+08:00 effects=[CloseBreak, Record(ActivityRecord { id: 0653844f-0ff1-4b1f-9fd1-b4bf19892c86, instance_id: 0653844f-0ff1-4b1f-9fd1-b4bf19892c86, session_id: Some(a7b28496-31f5-493d-bab7-bace821d3203), kind: EyeCare, outcome: Timed, ended_at: 2026-10-13T20:53:46.221149+08:00, local_date: "2026-10-13", reason: "休息倒计时结束" })]
+2026-10-13T20:54:27.811131+08:00 command=Respond(e8203349-2a3a-4650-a0dc-eb148b16cfe5, Complete)
+2026-10-13T20:54:27.811209+08:00 effects=[Record(ActivityRecord { id: e8203349-2a3a-4650-a0dc-eb148b16cfe5, instance_id: e8203349-2a3a-4650-a0dc-eb148b16cfe5, session_id: None, kind: Stand, outcome: Manual, ended_at: 2026-10-13T20:54:27.811131+08:00, local_date: "2026-10-13", reason: "用户确认已完成" })]
+2026-10-13T20:54:39.637920+08:00 command=OpenHome
+2026-10-13T20:55:24.847377+08:00 command=SetFloating(false)
+2026-10-13T20:56:17.713296+08:00 command=Save(Settings { schema_version: 2, onboarded: true, reminders: [ReminderConfig { mode: Strong, enabled: true, interval_minutes: 5, break_seconds: 30 }, ReminderConfig { mode: Gentle, enabled: true, interval_minutes: 5, break_seconds: 60 }, ReminderConfig { mode: Gentle, enabled: true, interval_minutes: 5, break_seconds: 180 }, ReminderConfig { mode: Gentle, enabled: true, interval_minutes: 5, break_seconds: 120 }, ReminderConfig { mode: Gentle, enabled: true, interval_minutes: 5, break_seconds: 20 }], weekdays: [true, true, true, true, true, true, true], periods: [WorkPeriod { start: 0, end: 1440 }] })
+2026-10-13T20:56:36.570266+08:00 command=Pause
+2026-10-13T20:56:53.379368+08:00 command=Resume
+2026-10-13T20:56:53.421690+08:00 command=Hide
+2026-10-13T20:57:10.896943+08:00 command=Respond(acae917b-a763-4e15-b288-87c82940d9ed, Complete)
+2026-10-13T20:57:10.896998+08:00 effects=[Record(ActivityRecord { id: acae917b-a763-4e15-b288-87c82940d9ed, instance_id: acae917b-a763-4e15-b288-87c82940d9ed, session_id: None, kind: Walk, outcome: Manual, ended_at: 2026-10-13T20:57:10.896943+08:00, local_date: "2026-10-13", reason: "用户确认已完成" })]
+2026-10-13T20:57:24.936021+08:00 command=Respond(956ed74a-9dc2-4982-8be8-f0a2f3d1447c, Complete)
+2026-10-13T20:57:24.936092+08:00 effects=[Record(ActivityRecord { id: 956ed74a-9dc2-4982-8be8-f0a2f3d1447c, instance_id: 956ed74a-9dc2-4982-8be8-f0a2f3d1447c, session_id: None, kind: Stretch, outcome: Manual, ended_at: 2026-10-13T20:57:24.936021+08:00, local_date: "2026-10-13", reason: "用户确认已完成" })]
+2026-10-13T20:57:33.150171+08:00 command=Respond(e15a909a-e8d5-48f7-ba01-7080ab6a1f0a, Complete)
+2026-10-13T20:57:33.150219+08:00 effects=[Record(ActivityRecord { id: e15a909a-e8d5-48f7-ba01-7080ab6a1f0a, instance_id: e15a909a-e8d5-48f7-ba01-7080ab6a1f0a, session_id: None, kind: Water, outcome: Manual, ended_at: 2026-10-13T20:57:33.150171+08:00, local_date: "2026-10-13", reason: "用户确认已完成" })]
+2026-10-13T20:57:33.190595+08:00 command=Open
+2026-10-13T20:59:03.127437+08:00 effects=[Notify([Instance { id: 49ae413b-9a12-4009-a31a-4809a6a05310, kind: EyeCare, break_seconds: 20, created_at: 2026-10-13T20:59:03.127402+08:00, gentle: true }])]
+2026-10-13T20:59:11.813081+08:00 command=Hide
+2026-10-13T20:59:22.957733+08:00 command=Respond(49ae413b-9a12-4009-a31a-4809a6a05310, Complete)
+2026-10-13T20:59:22.957902+08:00 effects=[Record(ActivityRecord { id: 49ae413b-9a12-4009-a31a-4809a6a05310, instance_id: 49ae413b-9a12-4009-a31a-4809a6a05310, session_id: None, kind: EyeCare, outcome: Manual, ended_at: 2026-10-13T20:59:22.957733+08:00, local_date: "2026-10-13", reason: "用户确认已完成" })]
+2026-10-13T20:59:22.980256+08:00 command=Open
+2026-10-13T20:59:44.654627+08:00 effects=[Notify([Instance { id: 812cbbf7-c149-45b1-b98a-afc4c6f954bd, kind: Stand, break_seconds: 120, created_at: 2026-10-13T20:59:44.654602+08:00, gentle: true }])]
+2026-10-13T21:00:48.586224+08:00 command=Hide
+2026-10-13T21:00:58.116040+08:00 command=Quit
+2026-10-13T21:00:58.116263+08:00 effects=[Record(ActivityRecord { id: 812cbbf7-c149-45b1-b98a-afc4c6f954bd, instance_id: 812cbbf7-c149-45b1-b98a-afc4c6f954bd, session_id: None, kind: Stand, outcome: Cancelled, ended_at: 2026-10-13T21:00:58.116040+08:00, local_date: "2026-10-13", reason: "应用退出" })]
+
+RESTART LOG
+dock_icon=embedded-small-gulu size=CGSize { width: 192.0, height: 192.0 }
+2026-10-13T21:01:55.315609+08:00 command=Quit
+
+FINAL DATABASE (isolated test fixture)
+settings={"schema_version":2,"onboarded":true,"reminders":[{"mode":"strong","enabled":true,"interval_minutes":5,"break_seconds":30},{"mode":"gentle","enabled":true,"interval_minutes":5,"break_seconds":60},{"mode":"gentle","enabled":true,"interval_minutes":5,"break_seconds":180},{"mode":"gentle","enabled":true,"interval_minutes":5,"break_seconds":120},{"mode":"gentle","enabled":true,"interval_minutes":5,"break_seconds":20}],"weekdays":[true,true,true,true,true,true,true],"periods":[{"start":0,"end":1440}]}
+settings_v1_backup={"schema_version": 1, "onboarded": true, "mode": "strong", "reminders": [{"enabled": true, "interval_minutes": 5, "break_seconds": 30}, {"enabled": true, "interval_minutes": 5, "break_seconds": 60}, {"enabled": true, "interval_minutes": 5, "break_seconds": 180}, {"enabled": true, "interval_minutes": 5, "break_seconds": 120}], "weekdays": [true, true, true, true, true, true, true], "periods": [{"start": 0, "end": 1440}]}
+ui_preferences={"schema_version":1,"floating_enabled":false,"floating_position":{"display_uuid":"37d8832a-2d66-02ca-b9f7-8f30a301b230","x":1246.0,"y":842.0}}
+{"kind": "eye_care", "outcome": "Timed", "ended_at": "2026-10-13T20:53:46.221149+08:00", "instance_id": "0653844f-0ff1-4b1f-9fd1-b4bf19892c86", "reason": "休息倒计时结束"}
+{"kind": "stand", "outcome": "Manual", "ended_at": "2026-10-13T20:54:27.811131+08:00", "instance_id": "e8203349-2a3a-4650-a0dc-eb148b16cfe5", "reason": "用户确认已完成"}
+{"kind": "walk", "outcome": "Manual", "ended_at": "2026-10-13T20:57:10.896943+08:00", "instance_id": "acae917b-a763-4e15-b288-87c82940d9ed", "reason": "用户确认已完成"}
+{"kind": "stretch", "outcome": "Manual", "ended_at": "2026-10-13T20:57:24.936021+08:00", "instance_id": "956ed74a-9dc2-4982-8be8-f0a2f3d1447c", "reason": "用户确认已完成"}
+{"kind": "water", "outcome": "Manual", "ended_at": "2026-10-13T20:57:33.150171+08:00", "instance_id": "e15a909a-e8d5-48f7-ba01-7080ab6a1f0a", "reason": "用户确认已完成"}
+{"kind": "eye_care", "outcome": "Manual", "ended_at": "2026-10-13T20:59:22.957733+08:00", "instance_id": "49ae413b-9a12-4009-a31a-4809a6a05310", "reason": "用户确认已完成"}
+{"kind": "stand", "outcome": "Cancelled", "ended_at": "2026-10-13T21:00:58.116040+08:00", "instance_id": "812cbbf7-c149-45b1-b98a-afc4c6f954bd", "reason": "应用退出"}
+activity_count=7
+distinct_instance_count=7

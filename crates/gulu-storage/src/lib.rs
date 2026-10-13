@@ -59,12 +59,25 @@ impl Store {
             .optional()?)
     }
     pub fn settings(&self) -> Result<Settings> {
-        match self.preference("settings")? {
-            Some(json) => serde_json::from_str::<Settings>(&json)?
-                .normalized()
-                .map_err(|e| StorageError::Invalid(e.to_string())),
-            None => Ok(Settings::default()),
+        let Some(json) = self.preference("settings")? else {
+            return Ok(Settings::default());
+        };
+        let (settings, migrated) = decode_settings(&json)?;
+        if migrated {
+            // Keep the exact old configuration and publish the upgrade atomically.
+            // A failed migration must never partially replace the user's settings.
+            let tx = self.connection.unchecked_transaction()?;
+            tx.execute(
+                "INSERT OR IGNORE INTO preferences VALUES ('settings_v1_backup',?1)",
+                [&json],
+            )?;
+            tx.execute(
+                "UPDATE preferences SET value=?1 WHERE key='settings'",
+                [serde_json::to_string(&settings)?],
+            )?;
+            tx.commit()?;
         }
+        Ok(settings)
     }
     pub fn ui_preferences(&self) -> Result<UiPreferences> {
         let prefs: UiPreferences = self
@@ -89,11 +102,7 @@ impl Store {
     }
     pub fn settings_backup(&self) -> Result<Option<Settings>> {
         self.preference("settings_backup")?
-            .map(|json| {
-                serde_json::from_str::<Settings>(&json)?
-                    .normalized()
-                    .map_err(|e| StorageError::Invalid(e.to_string()))
-            })
+            .map(|json| decode_settings(&json).map(|(settings, _)| settings))
             .transpose()
     }
     pub fn save_settings(&mut self, settings: &Settings) -> Result<()> {
@@ -199,6 +208,49 @@ impl Store {
     }
 }
 
+/// Migrate only the recognized v1 shape. Malformed and future data stay untouched.
+fn decode_settings(json: &str) -> Result<(Settings, bool)> {
+    let mut value: serde_json::Value = serde_json::from_str(json)?;
+    let version = value.get("schema_version").and_then(|v| v.as_u64());
+    let migrated = match version {
+        Some(1) => {
+            let object = value
+                .as_object_mut()
+                .ok_or_else(|| StorageError::Invalid("设置格式无效".into()))?;
+            let old_mode = object
+                .remove("mode")
+                .ok_or_else(|| StorageError::Invalid("旧设置缺少提醒方式".into()))?;
+            let _: gulu_core::ReminderMode = serde_json::from_value(old_mode)?;
+            let reminders = object
+                .get_mut("reminders")
+                .and_then(|v| v.as_array_mut())
+                .filter(|items| items.len() == 4)
+                .ok_or_else(|| StorageError::Invalid("旧设置必须包含四项提醒".into()))?;
+            for item in reminders.iter_mut() {
+                let item = item
+                    .as_object_mut()
+                    .ok_or_else(|| StorageError::Invalid("旧提醒格式无效".into()))?;
+                item.insert("mode".into(), serde_json::json!("gentle"));
+            }
+            reminders.push(serde_json::to_value(
+                &Settings::default().reminders[gulu_core::ReminderKind::EyeCare.index()],
+            )?);
+            object.insert("schema_version".into(), serde_json::json!(2));
+            true
+        }
+        Some(2) => false,
+        _ => {
+            return Err(StorageError::Invalid(
+                "设置版本不受支持，原数据未修改。".into(),
+            ));
+        }
+    };
+    let settings = serde_json::from_value::<Settings>(value)?
+        .normalized()
+        .map_err(|e| StorageError::Invalid(e.to_string()))?;
+    Ok((settings, migrated))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -261,6 +313,104 @@ mod tests {
             store.preference("ui_preferences").unwrap().as_deref(),
             Some("broken")
         );
+    }
+
+    fn legacy_settings() -> String {
+        serde_json::json!({
+            "schema_version": 1, "onboarded": true, "mode": "strong",
+            "reminders": [
+                {"enabled": true, "interval_minutes": 17, "break_seconds": 30},
+                {"enabled": false, "interval_minutes": 45, "break_seconds": 60},
+                {"enabled": true, "interval_minutes": 120, "break_seconds": 180},
+                {"enabled": true, "interval_minutes": 60, "break_seconds": 120}
+            ],
+            "weekdays": [true,true,true,true,true,false,false],
+            "periods": [{"start":540,"end":1080}]
+        })
+        .to_string()
+    }
+    #[test]
+    fn legacy_migration_preserves_original_and_does_not_override_later_choices() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("upgrade.db");
+        let mut store = Store::open(&path).unwrap();
+        let old = legacy_settings();
+        store
+            .connection
+            .execute("INSERT INTO preferences VALUES ('settings',?1)", [&old])
+            .unwrap();
+        let mut e = Engine::new(
+            Settings {
+                onboarded: true,
+                ..Default::default()
+            },
+            clock(),
+            Pause::None,
+        )
+        .unwrap();
+        store
+            .commit_effects(&e.manual_complete(ReminderKind::Water, clock()), None)
+            .unwrap();
+        let mut settings = store.settings().unwrap();
+        assert_eq!(settings.schema_version, 2);
+        assert_eq!(settings.reminders[0].interval_minutes, 17);
+        assert!(!settings.reminders[1].enabled);
+        assert!(
+            settings.reminders[..4]
+                .iter()
+                .all(|r| r.mode == gulu_core::ReminderMode::Gentle)
+        );
+        assert_eq!(settings.reminders[4], Settings::default().reminders[4]);
+        assert_eq!(
+            store.preference("settings_v1_backup").unwrap().unwrap(),
+            old
+        );
+        assert_eq!(store.records(clock().wall.date_naive()).unwrap().len(), 1);
+        settings.reminders[0].mode = gulu_core::ReminderMode::Strong;
+        settings.reminders[4].mode = gulu_core::ReminderMode::Gentle;
+        store.save_settings(&settings).unwrap();
+        drop(store);
+        let store = Store::open(&path).unwrap();
+        assert_eq!(store.settings().unwrap(), settings);
+        assert_eq!(
+            store.preference("settings_v1_backup").unwrap().unwrap(),
+            old
+        );
+    }
+    #[test]
+    fn invalid_future_and_failed_migrations_do_not_mutate_settings() {
+        let store = Store::memory().unwrap();
+        let old = legacy_settings();
+        store
+            .connection
+            .execute("INSERT INTO preferences VALUES ('settings',?1)", [&old])
+            .unwrap();
+        store
+            .connection
+            .execute_batch("PRAGMA query_only=ON")
+            .unwrap();
+        assert!(store.settings().is_err());
+        assert_eq!(store.preference("settings").unwrap().unwrap(), old);
+        assert!(store.preference("settings_v1_backup").unwrap().is_none());
+        store
+            .connection
+            .execute_batch("PRAGMA query_only=OFF")
+            .unwrap();
+        for value in [
+            old.replace("\"schema_version\":1", "\"schema_version\":99"),
+            old.replace("\"interval_minutes\":17", "\"interval_minutes\":0"),
+        ] {
+            store
+                .connection
+                .execute(
+                    "UPDATE preferences SET value=?1 WHERE key='settings'",
+                    [&value],
+                )
+                .unwrap();
+            assert!(store.settings().is_err());
+            assert_eq!(store.preference("settings").unwrap().unwrap(), value);
+            assert!(store.preference("settings_v1_backup").unwrap().is_none());
+        }
     }
 
     fn clock() -> ClockSample {
@@ -342,7 +492,7 @@ mod tests {
         store
             .commit_effects(&effects, engine.session.as_ref())
             .unwrap();
-        assert_eq!(store.recover_session(c.wall).unwrap(), 4);
+        assert_eq!(store.recover_session(c.wall).unwrap(), 1);
         assert_eq!(store.recover_session(c.wall).unwrap(), 0);
         assert!(
             store

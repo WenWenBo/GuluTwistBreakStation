@@ -3,21 +3,18 @@ use chrono::{DateTime, Duration, FixedOffset};
 use uuid::Uuid;
 
 const RECOVERY_MS: u64 = 60_000;
-const NOTIFICATION_COOLDOWN_MS: u64 = 60_000;
-const EXPIRY_MS: u64 = 120_000;
 
 #[derive(Debug)]
 pub struct Engine {
     pub settings: Settings,
-    pub reminders: [ReminderRuntime; 4],
+    pub reminders: [ReminderRuntime; ReminderKind::COUNT],
     pub session: Option<BreakSession>,
     pub pause: Pause,
     pub clock: ClockSample,
     work_window: Option<WorkWindow>,
-    notification_cooldown_ms: u64,
     batch_deadline_ms: Option<u64>,
     pause_deadline_ms: Option<u64>,
-    last_manual: [Option<u64>; 4],
+    last_manual: [Option<u64>; ReminderKind::COUNT],
     previewing: bool,
 }
 
@@ -37,10 +34,9 @@ impl Engine {
             pause,
             clock,
             work_window,
-            notification_cooldown_ms: 0,
             batch_deadline_ms: None,
             pause_deadline_ms,
-            last_manual: [None; 4],
+            last_manual: [None; ReminderKind::COUNT],
             previewing: false,
         })
     }
@@ -138,7 +134,6 @@ impl Engine {
             0
         };
         if elapsed > 0 {
-            self.notification_cooldown_ms = self.notification_cooldown_ms.saturating_sub(elapsed);
             for kind in ReminderKind::ALL {
                 let i = kind.index();
                 if !self.settings.reminders[i].enabled {
@@ -152,22 +147,17 @@ impl Engine {
                     ReminderPhase::Snoozed { remaining_ms, .. } => {
                         *remaining_ms = remaining_ms.saturating_sub(elapsed)
                     }
-                    ReminderPhase::Pending {
-                        notified: true,
-                        age_ms,
-                        ..
-                    } => *age_ms = age_ms.saturating_add(elapsed),
                     _ => {}
                 }
             }
         }
 
         if (!old.locked && now.locked) || slept {
-            // Snoozes freeze, ordinary outstanding notices become stale.
+            // Keep gentle to-dos for this work window; never resume an unstarted forced break.
             for kind in ReminderKind::ALL {
                 if matches!(
-                    self.reminders[kind.index()].phase,
-                    ReminderPhase::Pending { .. }
+                    &self.reminders[kind.index()].phase,
+                    ReminderPhase::Pending { instance, .. } if !instance.gentle
                 ) {
                     self.finish_item(kind, Outcome::Cancelled, "电脑锁屏或休眠", &mut effects);
                 }
@@ -180,12 +170,6 @@ impl Engine {
 
         if !self.running() {
             return effects;
-        }
-        for kind in ReminderKind::ALL {
-            if matches!(self.reminders[kind.index()].phase, ReminderPhase::Pending { notified: true, age_ms, .. } if age_ms >= EXPIRY_MS)
-            {
-                self.finish_item(kind, Outcome::Expired, "提醒未处理", &mut effects);
-            }
         }
         if !schedule {
             return effects;
@@ -203,7 +187,7 @@ impl Engine {
                     kind,
                     break_seconds: self.settings.reminders[i].break_seconds,
                     created_at: now.wall,
-                    gentle: self.settings.mode == ReminderMode::Gentle,
+                    gentle: self.settings.reminders[i].mode == ReminderMode::Gentle,
                 }),
                 ReminderPhase::Snoozed {
                     instance,
@@ -215,7 +199,6 @@ impl Engine {
                 runtime.phase = ReminderPhase::Pending {
                     instance,
                     notified: false,
-                    age_ms: 0,
                 };
             }
         }
@@ -235,46 +218,35 @@ impl Engine {
             return effects;
         }
         let (gentle, pending): (Vec<_>, Vec<_>) = pending.into_iter().partition(|i| i.gentle);
-        if !gentle.is_empty() && self.notification_cooldown_ms == 0 {
+        if !gentle.is_empty() {
             self.mark_notified(&gentle);
             effects.push(Effect::Notify(gentle));
-            self.notification_cooldown_ms = NOTIFICATION_COOLDOWN_MS;
         }
         if pending.is_empty() {
+            self.batch_deadline_ms = None;
             return effects;
         }
-        match self.settings.mode {
-            ReminderMode::Strong => {
-                let deadline = *self
-                    .batch_deadline_ms
-                    .get_or_insert(now.continuous_ms.saturating_add(1000));
-                if now.continuous_ms >= deadline {
-                    let duration_seconds = pending.iter().map(|i| i.break_seconds).max().unwrap();
-                    let work_end = self.settings.window_end(now.wall).unwrap();
-                    let until_end = (work_end - now.wall).num_milliseconds().max(0) as u64;
-                    let session = BreakSession {
-                        id: Uuid::new_v4(),
-                        items: pending,
-                        started_at: now.wall,
-                        duration_seconds,
-                        deadline_ms: now.continuous_ms + u64::from(duration_seconds) * 1000,
-                        work_end_ms: now.continuous_ms.saturating_add(until_end),
-                    };
-                    for item in &session.items {
-                        self.reminders[item.kind.index()].phase = ReminderPhase::Breaking;
-                    }
-                    effects.push(Effect::OpenBreak(session.clone()));
-                    self.session = Some(session);
-                    self.batch_deadline_ms = None;
-                }
+        let deadline = *self
+            .batch_deadline_ms
+            .get_or_insert(now.continuous_ms.saturating_add(1000));
+        if now.continuous_ms >= deadline {
+            let duration_seconds = pending.iter().map(|i| i.break_seconds).max().unwrap();
+            let work_end = self.settings.window_end(now.wall).unwrap();
+            let until_end = (work_end - now.wall).num_milliseconds().max(0) as u64;
+            let session = BreakSession {
+                id: Uuid::new_v4(),
+                items: pending,
+                started_at: now.wall,
+                duration_seconds,
+                deadline_ms: now.continuous_ms + u64::from(duration_seconds) * 1000,
+                work_end_ms: now.continuous_ms.saturating_add(until_end),
+            };
+            for item in &session.items {
+                self.reminders[item.kind.index()].phase = ReminderPhase::Breaking;
             }
-            ReminderMode::Gentle => {
-                if self.notification_cooldown_ms == 0 {
-                    self.mark_notified(&pending);
-                    effects.push(Effect::Notify(pending));
-                    self.notification_cooldown_ms = NOTIFICATION_COOLDOWN_MS;
-                }
-            }
+            effects.push(Effect::OpenBreak(session.clone()));
+            self.session = Some(session);
+            self.batch_deadline_ms = None;
         }
         effects
     }
@@ -285,8 +257,8 @@ impl Engine {
             self.finish_session(Outcome::Cancelled, "提醒已暂停", now.wall, &mut effects);
             for kind in ReminderKind::ALL {
                 if matches!(
-                    self.reminders[kind.index()].phase,
-                    ReminderPhase::Pending { .. }
+                    &self.reminders[kind.index()].phase,
+                    ReminderPhase::Pending { instance, .. } if !instance.gentle
                 ) {
                     self.finish_item(kind, Outcome::Cancelled, "提醒已暂停", &mut effects);
                 }
@@ -319,12 +291,10 @@ impl Engine {
             self.reminders[item.kind.index()].phase = ReminderPhase::Pending {
                 instance: item.clone(),
                 notified: true,
-                age_ms: 0,
             };
         }
         self.clock = now;
-        self.notification_cooldown_ms = NOTIFICATION_COOLDOWN_MS;
-        // This instance is gentle even though the user's global mode stays strong.
+        // This instance falls back to gentle without changing the item's configured mode.
         vec![Effect::CloseBreak, Effect::Notify(session.items)]
     }
 
@@ -395,8 +365,7 @@ impl Engine {
     ) -> Result<Vec<Effect>, ConfigError> {
         let settings = settings.normalized()?;
         let mut effects = self.advance(now, false);
-        let reset_all = settings.mode != self.settings.mode
-            || settings.weekdays != self.settings.weekdays
+        let reset_all = settings.weekdays != self.settings.weekdays
             || settings.periods != self.settings.periods
             || settings.onboarded != self.settings.onboarded;
         let reset_items: Vec<_> = ReminderKind::ALL
@@ -434,7 +403,6 @@ impl Engine {
         }
         if reset_all {
             self.batch_deadline_ms = None;
-            self.notification_cooldown_ms = 0;
         }
         self.work_window = self.settings.work_window(now.wall);
         Ok(effects)
@@ -467,7 +435,7 @@ impl Engine {
     }
 
     pub fn reminder_summary(&self) -> ReminderSummary {
-        // Already delivered notices take precedence over notices waiting for cooldown.
+        // Already delivered reminders take precedence over the forced-break batching delay.
         for delivered in [true, false] {
             let kinds: Vec<_> = ReminderKind::ALL.into_iter().filter(|kind| {
                 let i = kind.index();
@@ -481,6 +449,11 @@ impl Engine {
                 };
             }
         }
+        self.upcoming_summary()
+    }
+
+    /// Next future event, independent of already displayed gentle to-dos.
+    pub fn upcoming_summary(&self) -> ReminderSummary {
         let candidates: Vec<_> = ReminderKind::ALL
             .into_iter()
             .filter_map(|kind| {
@@ -540,14 +513,10 @@ impl Engine {
             let remaining = match &r.phase {
                 ReminderPhase::Waiting => r.remaining_ms,
                 ReminderPhase::Snoozed { remaining_ms, .. } => *remaining_ms,
-                ReminderPhase::Pending {
-                    notified: true,
-                    age_ms,
-                    ..
-                } => EXPIRY_MS.saturating_sub(*age_ms),
+                ReminderPhase::Pending { notified: true, .. } => 60_000,
                 ReminderPhase::Pending {
                     notified: false, ..
-                } => self.notification_cooldown_ms.max(1000),
+                } => 1000,
                 ReminderPhase::Breaking => 60_000,
             };
             wait = wait.min(remaining.max(1));
@@ -557,12 +526,10 @@ impl Engine {
 
     fn mark_notified(&mut self, instances: &[Instance]) {
         for item in instances {
-            if let ReminderPhase::Pending {
-                notified, age_ms, ..
-            } = &mut self.reminders[item.kind.index()].phase
+            if let ReminderPhase::Pending { notified, .. } =
+                &mut self.reminders[item.kind.index()].phase
             {
                 *notified = true;
-                *age_ms = 0;
             }
         }
     }

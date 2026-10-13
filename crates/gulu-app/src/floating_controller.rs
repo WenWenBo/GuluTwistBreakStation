@@ -47,7 +47,7 @@ impl Controller {
         }
         self.floating_visible = false;
     }
-    fn floating_display(&self, cx: &App) -> Option<Rc<dyn PlatformDisplay>> {
+    pub(crate) fn floating_display(&self, cx: &App) -> Option<Rc<dyn PlatformDisplay>> {
         let saved = self
             .preferences
             .current
@@ -64,7 +64,7 @@ impl Controller {
             })
             .or_else(|| cx.primary_display())
     }
-    fn floating_bounds(&self, display: &dyn PlatformDisplay) -> Bounds<Pixels> {
+    pub(crate) fn floating_bounds(&self, display: &dyn PlatformDisplay) -> Bounds<Pixels> {
         let position = self
             .preferences
             .current

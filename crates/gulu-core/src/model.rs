@@ -100,7 +100,6 @@ pub enum ReminderPhase {
     Pending {
         instance: Instance,
         notified: bool,
-        age_ms: u64,
     },
     Snoozed {
         instance: Instance,

@@ -8,10 +8,18 @@ pub enum ReminderKind {
     Stretch,
     Walk,
     Stand,
+    EyeCare,
 }
 
 impl ReminderKind {
-    pub const ALL: [Self; 4] = [Self::Water, Self::Stretch, Self::Walk, Self::Stand];
+    pub const COUNT: usize = 5;
+    pub const ALL: [Self; Self::COUNT] = [
+        Self::Water,
+        Self::Stretch,
+        Self::Walk,
+        Self::Stand,
+        Self::EyeCare,
+    ];
     pub fn index(self) -> usize {
         Self::ALL.iter().position(|v| *v == self).unwrap()
     }
@@ -21,6 +29,7 @@ impl ReminderKind {
             Self::Stretch => "扭扭颈肩",
             Self::Walk => "如厕放风",
             Self::Stand => "站立活动",
+            Self::EyeCare => "保护眼睛",
         }
     }
     pub fn hint(self) -> &'static str {
@@ -29,6 +38,7 @@ impl ReminderKind {
             Self::Stretch => "放松肩膀，轻轻活动到舒适的位置。",
             Self::Walk => "有需要的话，去放个风，顺便离开工位走走。",
             Self::Stand => "站一站，让身体换个姿势。",
+            Self::EyeCare => "让眼睛休息一下，看看远处。",
         }
     }
     pub fn symbol(self) -> &'static str {
@@ -37,6 +47,7 @@ impl ReminderKind {
             Self::Stretch => "扭",
             Self::Walk => "风",
             Self::Stand => "站",
+            Self::EyeCare => "眼",
         }
     }
 }
@@ -50,6 +61,7 @@ pub enum ReminderMode {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReminderConfig {
+    pub mode: ReminderMode,
     pub enabled: bool,
     pub interval_minutes: u32,
     pub break_seconds: u32,
@@ -65,8 +77,7 @@ pub struct WorkPeriod {
 pub struct Settings {
     pub schema_version: u32,
     pub onboarded: bool,
-    pub mode: ReminderMode,
-    pub reminders: [ReminderConfig; 4],
+    pub reminders: [ReminderConfig; ReminderKind::COUNT],
     /// Monday first.
     pub weekdays: [bool; 7],
     pub periods: Vec<WorkPeriod>,
@@ -75,16 +86,22 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            schema_version: 1,
+            schema_version: 2,
             onboarded: false,
-            mode: ReminderMode::Strong,
-            reminders: [(60, 30), (45, 60), (120, 180), (60, 120)].map(
-                |(interval_minutes, break_seconds)| ReminderConfig {
+            reminders: std::array::from_fn(|i| {
+                let (interval_minutes, break_seconds) =
+                    [(60, 30), (45, 60), (120, 180), (60, 120), (20, 20)][i];
+                ReminderConfig {
+                    mode: if i == ReminderKind::EyeCare.index() {
+                        ReminderMode::Strong
+                    } else {
+                        ReminderMode::Gentle
+                    },
                     enabled: true,
                     interval_minutes,
                     break_seconds,
-                },
-            ),
+                }
+            }),
             weekdays: [true, true, true, true, true, false, false],
             periods: vec![
                 WorkPeriod {
@@ -113,7 +130,7 @@ pub struct WorkWindow {
 
 impl Settings {
     pub fn normalized(mut self) -> Result<Self, ConfigError> {
-        if self.schema_version != 1 {
+        if self.schema_version != 2 {
             return Err(ConfigError("设置版本不受支持，请使用兼容版本打开。".into()));
         }
         if !self.weekdays.iter().any(|v| *v) {

@@ -57,7 +57,7 @@ impl DisplayState {
             };
             return text(format!("{day} {}", next.format("%H:%M")), "下班啦", false);
         }
-        match engine.reminder_summary() {
+        match engine.upcoming_summary() {
             ReminderSummary::Upcoming {
                 kinds,
                 remaining_ms,
@@ -82,6 +82,11 @@ impl DisplayState {
                 if notified { "待处理" } else { "待提醒" },
                 false,
             ),
+            ReminderSummary::None if !engine.pending().is_empty() => text(
+                format!("{} 项等你完成", engine.pending().len()),
+                "全部待处理",
+                false,
+            ),
             ReminderSummary::None => text("照顾好自己".into(), "休息中", false),
         }
     }
@@ -92,6 +97,7 @@ fn short(kind: ReminderKind) -> &'static str {
         ReminderKind::Stretch => "颈肩",
         ReminderKind::Walk => "放风",
         ReminderKind::Stand => "站立",
+        ReminderKind::EyeCare => "护眼",
     }
 }
 fn names(kinds: &[ReminderKind]) -> String {
@@ -103,6 +109,7 @@ fn names(kinds: &[ReminderKind]) -> String {
             ReminderKind::Stretch => "扭扭颈肩",
             ReminderKind::Walk => "放风一下",
             ReminderKind::Stand => "站一站",
+            ReminderKind::EyeCare => "保护眼睛",
         }
         .into()
     }
@@ -131,7 +138,7 @@ pub fn current_position(w: &Window, cx: &App) -> Option<FloatingPosition> {
         y: relative.y.into(),
     })
 }
-fn colors(w: &Window) -> (u32, u32, u32, u32) {
+pub(crate) fn colors(w: &Window) -> (u32, u32, u32, u32) {
     if matches!(
         w.appearance(),
         WindowAppearance::Dark | WindowAppearance::VibrantDark

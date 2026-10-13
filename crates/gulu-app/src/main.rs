@@ -5,6 +5,7 @@ mod floating_controller;
 mod persistence;
 mod platform;
 mod preferences;
+mod reminder_rows;
 mod tray;
 mod ui;
 use async_channel::Sender;
@@ -67,7 +68,7 @@ pub struct Snapshot {
     pub settings: Settings,
     pub pause: Pause,
     pub status: String,
-    pub remaining: [String; 4],
+    pub remaining: [String; ReminderKind::COUNT],
     pub pending: Vec<Instance>,
     pub records: Vec<ActivityRecord>,
     pub message: String,
@@ -83,6 +84,8 @@ struct Controller {
     floating_menu: Option<AnyWindowHandle>,
     floating_visible: bool,
     floating_failed: bool,
+    reminder_windows: std::collections::HashMap<Uuid, AnyWindowHandle>,
+    reminder_failed: std::collections::HashSet<Uuid>,
     position_due: Option<std::time::Instant>,
     engine: Engine,
     snapshot: Rc<RefCell<Snapshot>>,
@@ -164,6 +167,7 @@ impl Controller {
         cx: &mut App,
     ) -> anyhow::Result<()> {
         self.hide_floating(cx);
+        self.close_reminder_rows(cx);
         self.close_overlays(cx);
         self.previous_focus = platform::capture_focus();
         let displays = cx.displays();
@@ -249,27 +253,9 @@ impl Controller {
                         extra = self.engine.overlay_failed(s.id, platform::clock());
                     }
                 }
-                Effect::Notify(items) => {
-                    let ids = items
-                        .iter()
-                        .map(|i| i.id.to_string())
-                        .collect::<Vec<_>>()
-                        .join(",");
-                    for item in items {
-                        self.notice_tags.insert(item.id, ids.clone());
-                    }
-                    cx.show_system_notification(SystemNotification {
-                        tag: ids.into(),
-                        title: "咕嘟扭扭 · 该照顾自己啦".into(),
-                        body: items
-                            .iter()
-                            .map(|i| i.kind.title())
-                            .collect::<Vec<_>>()
-                            .join(" · ")
-                            .into(),
-                        actions: vec![],
-                    });
-                }
+                // sync_reminder_rows shows persistent, non-activating inline reminders.
+                // Native notifications are only the fallback if a row cannot be opened.
+                Effect::Notify(_) => {}
                 Effect::Record(record) => {
                     self.snapshot.borrow_mut().records.insert(0, record.clone());
                     if let Some(tag) = self.notice_tags.remove(&record.instance_id) {
@@ -290,6 +276,27 @@ impl Controller {
             self.apply(extra, cx);
         }
     }
+    fn notify_fallback(&mut self, items: &[Instance], cx: &mut App) {
+        let ids = items
+            .iter()
+            .map(|i| i.id.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+        for item in items {
+            self.notice_tags.insert(item.id, ids.clone());
+        }
+        cx.show_system_notification(SystemNotification {
+            tag: ids.into(),
+            title: "咕嘟扭扭 · 该照顾自己啦".into(),
+            body: items
+                .iter()
+                .map(|i| i.kind.title())
+                .collect::<Vec<_>>()
+                .join(" · ")
+                .into(),
+            actions: vec![],
+        });
+    }
     fn event(&mut self, event: Event, cx: &mut App) {
         let now = platform::clock();
         let event = match event {
@@ -305,6 +312,12 @@ impl Controller {
                     .is_some_and(|(w, _)| Some(*w) == cx.active_window())
                 {
                     Command::SetFloating(false)
+                } else if self
+                    .reminder_windows
+                    .values()
+                    .any(|w| Some(*w) == cx.active_window())
+                {
+                    Command::OpenHome
                 } else if self.preview.is_some() || self.engine.session.is_some() {
                     Command::Interrupt
                 } else {
@@ -463,6 +476,7 @@ impl Controller {
                 Command::Quit => {
                     self.quitting = true;
                     self.hide_floating(cx);
+                    self.close_reminder_rows(cx);
                     self.save_ui_if_ready(true);
                     self.preview = None;
                     self.close_overlays(cx);
@@ -749,12 +763,9 @@ impl Controller {
                         "还需 {} 有效时间",
                         ui::duration(self.engine.reminders[i].remaining_ms.div_ceil(1000))
                     ),
-                    ReminderPhase::Pending { notified, .. } => if *notified {
-                        "已发出提醒"
-                    } else {
-                        "待提醒"
+                    ReminderPhase::Pending { notified, .. } => {
+                        if *notified { "待完成" } else { "待提醒" }.into()
                     }
-                    .into(),
                     ReminderPhase::Snoozed { remaining_ms, .. } => {
                         format!("稍后 · {}", ui::duration(remaining_ms.div_ceil(1000)))
                     }
@@ -770,6 +781,7 @@ impl Controller {
         }
         drop(s);
         self.sync_floating(cx);
+        self.sync_reminder_rows(cx);
         if self.main_visible
             && let Some((_, v)) = &self.main
         {
@@ -974,6 +986,8 @@ fn run() -> anyhow::Result<()> {
             floating_menu: None,
             floating_visible: false,
             floating_failed: false,
+            reminder_windows: Default::default(),
+            reminder_failed: Default::default(),
             position_due: None,
             engine,
             snapshot,
@@ -1009,6 +1023,7 @@ fn run() -> anyhow::Result<()> {
             {
                 let mut c = quitting.borrow_mut();
                 c.hide_floating(cx);
+                c.close_reminder_rows(cx);
                 c.close_overlays(cx);
                 if !c.quitting {
                     c.quitting = true;
