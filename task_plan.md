@@ -7,7 +7,7 @@
 
 ## 执行调整（2026-10-13）
 
-新增功能计划：用户已确认 200 × 52、两端完整半圆的桌面胶囊外观。开发步骤、代码改动和验收要求见 [紧凑胶囊悬浮窗实现计划](docs/implementation/FLOATING_WIDGET_PLAN.md)。功能已在从 `origin/main` 创建的 `feat/compact-floating-capsule` 分支实现，46 项测试与静态检查、Mac 双架构打包通过。本轮桌面交互受锁屏阻挡，Windows 原生编译与 Intel 实机运行待完成。证据见[胶囊验证报告](docs/validation/FLOATING_WIDGET_REPORT.md)，后续按[专项手册](docs/validation/FLOATING_WIDGET_MANUAL_TESTS.md)补验；下文已有功能的执行记录保持独立。
+新增功能计划：用户已确认 200 × 52、两端完整半圆的桌面胶囊外观。开发步骤、代码改动和验收要求见 [紧凑胶囊悬浮窗实现计划](docs/implementation/FLOATING_WIDGET_PLAN.md)。功能已在从 `origin/main` 创建的 `feat/compact-floating-capsule` 分支实现，46 项测试与静态检查、Mac 双架构打包通过。解锁后已补验本机外观、主窗往返、真实拖动、开关与位置持久化、草稿保护、自然正式休息和体验退出；完整边界验收、Windows 原生编译与 Intel 实机运行仍待完成。证据见[胶囊验证报告](docs/validation/FLOATING_WIDGET_REPORT.md)，后续按[专项手册](docs/validation/FLOATING_WIDGET_MANUAL_TESTS.md)补验；下文已有功能的执行记录保持独立。
 
 用户已授权实施，并明确调整顺序：先在当前 M4 Mac 上实现、验证完整功能；同时实现 Windows 10 与 Intel Mac 的适配及构建配置。跨机器真实运行交由用户在本机版本稳定后手动执行，交付具体步骤和记录模板。下文原 G1 对 Windows/Intel 实测的前置限制因此后移，不阻塞 P4–P6 的本机实施；跨机器兼容仍须区分“已实现/可构建”和“用户实测通过”。无法在当前设备完成的多屏、真实睡眠和长期稳定性检查如实记录，不宣称不存在任何未知问题。
 

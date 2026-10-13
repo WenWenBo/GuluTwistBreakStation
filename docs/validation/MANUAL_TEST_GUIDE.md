@@ -1,6 +1,6 @@
 # Windows 10 / Intel Mac 手动验证步骤
 
-版本：0.1.0（小咕视觉更新与紧凑胶囊，Mac 构建号 4）；请同时执行 [视觉专项](UI_REFRESH_MANUAL_TESTS.md)和[胶囊专项](FLOATING_WIDGET_MANUAL_TESTS.md)。胶囊本机交互尚未验收，先完成[报告](FLOATING_WIDGET_REPORT.md)中的本机补验，再执行外机测试。此文档是操作清单，不是通过报告。先使用个人测试数据；完成后把末尾记录表交回即可定位问题。基础流程约 30–45 分钟，长时间稳定性另做 8 小时。
+版本：0.1.0（小咕视觉更新与紧凑胶囊，Mac 构建号 4）；请同时执行 [视觉专项](UI_REFRESH_MANUAL_TESTS.md)和[胶囊专项](FLOATING_WIDGET_MANUAL_TESTS.md)。胶囊已完成本机主要交互补验；先核对[报告](FLOATING_WIDGET_REPORT.md)中的结果与待测边界，再执行外机测试。此文档是操作清单，不是通过报告。先使用个人测试数据；完成后把末尾记录表交回即可定位问题。基础流程约 30–45 分钟，长时间稳定性另做 8 小时。
 
 ## 1. 准备设备和包
 

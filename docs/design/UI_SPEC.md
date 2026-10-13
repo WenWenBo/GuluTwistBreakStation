@@ -1,6 +1,6 @@
 # 界面规范 · 小咕视觉更新
 
-版本：0.1.0，macOS 构建号 4。更新：2026-10-13。本文描述已实现界面；胶囊仍待本机交互验证，见[专项报告](../validation/FLOATING_WIDGET_REPORT.md)；设计依据见 [优化方案](UI_OPTIMIZATION_PLAN.md)，实际证据与尚待实测的项目见 [视觉回归报告](../validation/UI_REFRESH_REPORT.md)。
+版本：0.1.0，macOS 构建号 4。更新：2026-10-13。本文描述已实现界面；胶囊已完成本机主要交互验证，完整边界与外机实测仍待完成，见[专项报告](../validation/FLOATING_WIDGET_REPORT.md)；设计依据见 [优化方案](UI_OPTIMIZATION_PLAN.md)，实际证据与尚待实测的项目见 [视觉回归报告](../validation/UI_REFRESH_REPORT.md)。
 
 ## 品牌与资源
 

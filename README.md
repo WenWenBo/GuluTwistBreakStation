@@ -57,7 +57,7 @@ GULU_DATA_DIR="$PWD/dist/manual-test" GULU_DIAGNOSTICS=1 \
 
 在“提醒设置 → 桌面悬浮窗”开启 **显示桌面悬浮窗**，即可使用 200 × 52、两端半圆的小窗，查看最近事项和倒计时。点击图标或时间打开主窗口；关闭主窗口后胶囊继续显示。两者可以同时存在，隐藏胶囊不暂停提醒。拖动会记住位置，右侧更多菜单提供暂停、设置、重置位置与隐藏入口，托盘可重新显示。
 
-旧用户默认关闭；开关与位置独立保存，不提交提醒规则草稿。正式休息、体验及锁屏期间临时隐藏，结束后按开关恢复。最新代码的自动检查与 Mac 双架构打包已通过；本轮桌面验证受本机锁屏阻挡，Windows 原生构建和 Intel 实机运行尚未完成。详见[胶囊验证报告](docs/validation/FLOATING_WIDGET_REPORT.md)与[专项手工步骤](docs/validation/FLOATING_WIDGET_MANUAL_TESTS.md)。
+旧用户默认关闭；开关与位置独立保存，不提交提醒规则草稿。正式休息、体验及锁屏期间临时隐藏，结束后按开关恢复。自动检查与 Mac 双架构打包已通过；本机已验证胶囊外观、主窗切换、拖动、开关与位置持久化、草稿保护以及休息隐藏／恢复。Windows 原生构建和 Intel 实机运行尚未完成，锁屏睡眠、混合缩放与稳定性等边界仍需补验。详见[胶囊验证报告](docs/validation/FLOATING_WIDGET_REPORT.md)与[专项手工步骤](docs/validation/FLOATING_WIDGET_MANUAL_TESTS.md)。
 
 ## 代码与文档
 
@@ -68,6 +68,6 @@ GULU_DATA_DIR="$PWD/dist/manual-test" GULU_DIAGNOSTICS=1 \
 - [其它机器验证步骤](docs/validation/MANUAL_TEST_GUIDE.md)
 - [架构决策](docs/architecture/decisions.md)
 - [需求文档](docs/requirements/PRD.md) / [实施追踪](task_plan.md)
-- [紧凑胶囊悬浮窗实现计划](docs/implementation/FLOATING_WIDGET_PLAN.md)（已实现，桌面交互待验证）
+- [紧凑胶囊悬浮窗实现计划](docs/implementation/FLOATING_WIDGET_PLAN.md)（已实现，本机主要交互已验证）
 
 首版没有账号、云同步、自动更新或开机启动。公开发布前还需要正式签名、公证与完整的平台和长期稳定性验收。

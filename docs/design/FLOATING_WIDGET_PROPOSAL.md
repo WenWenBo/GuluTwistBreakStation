@@ -1,6 +1,6 @@
 # 桌面悬浮窗 · 可行性与设计建议
 
-日期：2026-10-13。状态：用户已确认 200 × 52 的紧凑胶囊及两端完整半圆外观，并已授权实施；功能代码已在 `feat/compact-floating-capsule` 实现，自动检查和 Mac 双架构打包通过，本机桌面与外机运行尚待验证，见[验证报告](../validation/FLOATING_WIDGET_REPORT.md)。开发步骤与精确状态规则见 [实现计划](../implementation/FLOATING_WIDGET_PLAN.md)，不代表通过平台实测。
+日期：2026-10-13。状态：用户已确认 200 × 52 的紧凑胶囊及两端完整半圆外观，并已授权实施；功能代码已在 `feat/compact-floating-capsule` 实现，自动检查和 Mac 双架构打包通过，本机主要桌面交互已补验，完整边界与外机运行仍待验证，见[验证报告](../validation/FLOATING_WIDGET_REPORT.md)。开发步骤与精确状态规则见 [实现计划](../implementation/FLOATING_WIDGET_PLAN.md)，不代表通过平台实测。
 
 ## 结论
 
