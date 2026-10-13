@@ -1,0 +1,18 @@
+[package]
+name = "gulu-storage"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+gulu-core = { path = "../gulu-core" }
+rusqlite = { version = "0.37", features = ["bundled", "backup"] }
+chrono.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+uuid.workspace = true
+tempfile = "3"
+

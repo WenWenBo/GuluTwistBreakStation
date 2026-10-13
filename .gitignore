@@ -1,0 +1,51 @@
+# Build output and dependencies (including nested tools)
+target/
+/dist/
+node_modules/
+*.rs.bk
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+
+# Local runtime data, SQLite sidecars and recovery copies
+/.local-test/
+instance.lock
+/activate
+*.db
+*.db-*
+*.db.recovery-*
+*.sqlite
+*.sqlite-*
+*.sqlite.recovery-*
+*.sqlite3
+*.sqlite3-*
+*.sqlite3.recovery-*
+*.log
+
+# Local environment and signing credentials
+.env
+.env.*
+!.env.example
+!.env.sample
+!.env.template
+*.p12
+*.pfx
+*.p8
+*.key
+*.pem
+/.cargo/credentials
+/.cargo/credentials.toml
+
+# OS and editor metadata
+.DS_Store
+._*
+Thumbs.db
+Desktop.ini
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Keep Cargo.lock, package-lock.json, .cargo/config.toml and assets/ tracked.

@@ -1,0 +1,39 @@
+[package]
+name = "gulu-app"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "gulu-twist"
+path = "src/main.rs"
+
+[dependencies]
+gulu-core = { path = "../gulu-core" }
+gulu-storage = { path = "../gulu-storage" }
+gpui-kit = "=0.7.3"
+tray-icon = "0.24"
+directories = "6"
+fs2 = "0.4"
+anyhow = "1"
+async-channel = "2"
+notify = "8"
+futures-lite = "2"
+raw-window-handle = "0.6"
+chrono.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSData", "NSDistributedNotificationCenter", "NSNotification", "NSOperation", "NSString"] }
+objc2-app-kit = { version = "0.3", features = ["NSWorkspace", "NSWindow", "NSApplication", "NSImage"] }
+block2 = "0.6"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_System_SystemInformation", "Win32_UI_WindowsAndMessaging", "Win32_System_RemoteDesktop", "Win32_System_Power", "Win32_System_LibraryLoader", "Win32_Graphics_Gdi", "Win32_Foundation", "Win32_System_Threading"] }
+
+
+[build-dependencies]
+embed-resource = "=3.0.12"
