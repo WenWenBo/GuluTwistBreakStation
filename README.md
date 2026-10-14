@@ -85,6 +85,7 @@ Mac 正常运行只在菜单栏显示入口，打开设置也不占 Dock 或 ⌘
 - [使用说明](docs/user-guide.md)
 - [其它机器验证步骤](docs/validation/MANUAL_TEST_GUIDE.md)
 - [架构决策](docs/architecture/decisions.md)
+- [OTA 自动更新文档](docs/ota/README.md)（调研与设计：更新原理、GitHub Releases、灰度平台与参考应用对比，尚未实现）
 - [需求文档](docs/requirements/PRD.md) / [实施追踪](task_plan.md)
 - [紧凑胶囊悬浮窗实现计划](docs/implementation/FLOATING_WIDGET_PLAN.md)（已实现，本机主要交互已验证）
 
