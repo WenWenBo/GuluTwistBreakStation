@@ -34,6 +34,17 @@ Windows 在装有 Visual Studio 2022 C++ Build Tools 和 Windows SDK 的机器�
 
 Windows 11 已完成原生构建、便携包运行与主要常驻生命周期验证，并修复重复启动时的文件锁错误；托盘系统区域交互、Explorer 恢复、DPI、安装版与 Windows 10 仍待补验，详见 [Windows 验证报告](docs/validation/RESIDENT_APP_WINDOWS_REPORT.md)。
 
+### macOS 提示无法打开
+
+当前 Mac 包仅使用临时签名，尚未完成 Apple 开发者签名和公证。下载后如果提示“Apple 无法验证 ‘GuluTwist Break Station’ 是否包含可能危害 Mac 安全或泄漏隐私的恶意软件”，请确认应用来自可信来源，将其放入“应用程序”目录，然后在终端执行：
+
+```bash
+xattr -dr com.apple.quarantine '/Applications/GuluTwist Break Station.app'
+open '/Applications/GuluTwist Break Station.app'
+```
+
+第一条命令移除该应用的下载隔离标记，第二条命令启动应用。此操作仅针对该应用，不会关闭系统整体安全保护；如果安装在其它目录，请相应替换路径。启动后可在屏幕顶部菜单栏找到应用入口。
+
 ## 开发与检查
 
 macOS 开发时，在项目根目录（包含 `Cargo.toml` 的目录）执行：
