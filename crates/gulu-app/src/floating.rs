@@ -230,8 +230,8 @@ impl Render for FloatingView {
             }))
             .on_mouse_up(
                 MouseButton::Left,
-                cx.listener(|this, _, _, _| {
-                    if this.press.take().is_some() {
+                cx.listener(|this, e: &MouseUpEvent, _, _| {
+                    if this.press.take().is_some() && e.click_count == 2 {
                         this.open();
                     }
                 }),
@@ -251,8 +251,8 @@ impl Render for FloatingView {
                     // exposes the time without a focused label changing each second.
                     .aria_label(format!("{title}，打开小站"))
                     .on_click(cx.listener(|this, event, _, _| {
-                        // Mouse activation is resolved by the parent after distinguishing
-                        // a native window drag. Keyboard and accessibility clicks have
+                        // Mouse double-click activation is resolved by the parent after
+                        // distinguishing a native window drag. Keyboard and accessibility clicks have
                         // no mouse-down event and must also reach the main window.
                         if !matches!(event, ClickEvent::Mouse(_)) {
                             this.open();
