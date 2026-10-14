@@ -4,7 +4,7 @@ use uuid::Uuid;
 
 const RECOVERY_MS: u64 = 60_000;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Engine {
     pub settings: Settings,
     pub reminders: [ReminderRuntime; ReminderKind::COUNT],

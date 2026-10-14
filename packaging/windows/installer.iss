@@ -1,3 +1,4 @@
+; Historical manual 0.1.0 installer only. OTA builds use scripts/package-windows.ps1 (Velopack).
 #define AppName "GuluTwist Break Station"
 #define AppVersion "0.1.0"
 [Setup]

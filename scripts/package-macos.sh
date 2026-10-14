@@ -29,23 +29,31 @@ icon_hash="$(shasum -a 256 "$stage/AppIcon.icns" | cut -c 1-12)"
 icon_name="AppIcon-$icon_hash.icns"
 mv "$stage/AppIcon.icns" "$bundle/Contents/Resources/$icon_name"
 /usr/libexec/PlistBuddy -c "Set :CFBundleIconFile $icon_name" "$bundle/Contents/Info.plist"
-codesign --force --deep --sign - "$bundle"
-codesign --verify --deep --strict "$bundle"
+version="$(python3 scripts/release-metadata.py "$arch" --field version)"
+channel="$(python3 scripts/release-metadata.py "$arch" --field channel)"
+rid="$(python3 scripts/release-metadata.py "$arch" --field rid)"
+/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $version" "$bundle/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $version" "$bundle/Contents/Info.plist"
 touch "$bundle/Contents" "$bundle"
-python3 scripts/verify-macos-icon.py "$bundle"
-version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$bundle/Contents/Info.plist")"
-build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$bundle/Contents/Info.plist")"
-archive="dist/GuluTwist-$version-build$build-$arch.zip"
-ditto -c -k --sequesterRsrc --keepParent "$bundle" "$stage/package.zip"
-# Publish only a fully built and checked bundle, without stale files from old builds.
-destination="dist/$arch/GuluTwist Break Station.app"
-if [[ -e "$destination" ]]; then
-  mv "$destination" "$stage/previous.app"
-fi
-mv "$bundle" "$destination"
-mv "$stage/package.zip" "$archive"
-# Keep previously shared download paths pointing to the latest build as well.
-cp "$archive" "dist/GuluTwist-$version-$arch.zip"
-bundle="$destination"
-printf '%s\n' "$bundle"
-printf '%s\n' "$archive"
+# vpk signs after injecting UpdateMac and sq.version, before making either archive.
+dotnet tool restore
+dotnet tool run vpk -- pack --packId app.gulutwist.breakstation --packVersion "$version" \
+  --packDir "$bundle" --mainExe gulu-twist --runtime "$rid" --channel "$channel" \
+  --packTitle "GuluTwist Break Station" --packAuthors GuluTwist \
+  --bundleId app.gulutwist.breakstation --signAppIdentity - --noInst --delta None \
+  --releaseNotes "docs/releases/$version.md" --outputDir "$stage/output" --skip-updates -y
+mkdir -p "dist/ota/$arch"
+# Only checked, fresh output enters the CI artifact directory.
+python3 scripts/release-metadata.py "$arch" --output "$stage/output/build.$channel.json"
+python3 scripts/validate-ota-artifacts.py "$stage/output" --target "$arch"
+mkdir -p "$stage/verify"
+archive=("$stage/output/"*Portable.zip)
+[[ ${#archive[@]} == 1 ]]
+ditto -x -k "${archive[0]}" "$stage/verify"
+final_bundle=("$stage/verify/"*.app)
+codesign --verify --deep --strict "${final_bundle[0]}"
+python3 scripts/verify-macos-icon.py "${final_bundle[0]}"
+# The destination only contains generated artifacts, never user data.
+rm -rf "dist/ota/$arch"
+mv "$stage/output" "dist/ota/$arch"
+printf '%s\n' "dist/ota/$arch"

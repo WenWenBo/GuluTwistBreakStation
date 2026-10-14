@@ -6,16 +6,17 @@
 
 ## 本机运行
 
-当前个人预览版为 0.1.0（Mac build 7，菜单栏／托盘常驻），目标为 macOS 15+（Apple Silicon / Intel）与 Windows 10／11 x64。实际验证范围见[常驻模式报告](docs/validation/RESIDENT_APP_REPORT.md)，源码支持不等于目标机器实测通过。
+当前源码版本为 0.1.1（已接入 OTA，菜单栏／托盘常驻），目标为 macOS 15+（Apple Silicon / Intel）与 Windows 10／11 x64。实际验证范围见[常驻模式报告](docs/validation/RESIDENT_APP_REPORT.md)，源码支持不等于目标机器实测通过。
 
 macOS 打包后运行，系统通知需要真实 `.app`：
 
 ```bash
 scripts/package-macos.sh aarch64-apple-darwin
-open 'dist/aarch64-apple-darwin/GuluTwist Break Station.app'
+ditto -x -k dist/ota/aarch64-apple-darwin/app.gulutwist.breakstation-osx-arm64-stable-Portable.zip dist/run-arm64
+open 'dist/run-arm64/GuluTwist Break Station.app'
 ```
 
-Mac ZIP 文件名包含构建号（例如 `GuluTwist-0.1.0-build7-aarch64-apple-darwin.zip`），旧无构建号下载路径也同步为最新包。build 3 修复替换应用后 Dock 仍显示旧图标的问题，见 [修复记录](docs/validation/DOCK_ICON_FIX.md)。
+OTA 安装包位于 `dist/ota/<目标>/`；Mac ZIP 按 `osx-arm64-stable` / `osx-x64-stable` 区分，Windows 使用 `win-x64-stable-Setup.exe`。发布流水线只创建草稿，维护者实测后手动公开。见 [打包说明](docs/packaging.md)。
 
 Intel Mac 包：
 
@@ -30,9 +31,9 @@ Windows 在装有 Visual Studio 2022 C++ Build Tools 和 Windows SDK 的机器�
 ./scripts/package-windows.ps1
 ```
 
-生成安装包需要 Inno Setup 6；可加 `-SkipInstaller` 生成便携 ZIP。Rust 版本由 `rust-toolchain.toml` 锁定。macOS 构建需要 Xcode Command Line Tools。首次构建下载依赖，程序运行不需要网络。
+打包需要 Python 3.11+、.NET SDK 10.0.402 和仓库锁定的 vpk 1.2.161；Windows 使用 Velopack 安装版，.NET 不是用户运行依赖。Rust 版本由 `rust-toolchain.toml` 锁定。macOS 构建需要 Xcode Command Line Tools。首次构建下载依赖，程序运行不需要网络。
 
-Windows 11 已完成原生构建、便携包运行与主要常驻生命周期验证，并修复重复启动时的文件锁错误；托盘系统区域交互、Explorer 恢复、DPI、安装版与 Windows 10 仍待补验，详见 [Windows 验证报告](docs/validation/RESIDENT_APP_WINDOWS_REPORT.md)。
+0.1.0 已完成 Windows 11 原生构建、便携包运行与主要常驻生命周期验证，并修复重复启动时的文件锁错误，详见 [Windows 验证报告](docs/validation/RESIDENT_APP_WINDOWS_REPORT.md)。本次 0.1.1 的 Windows 安装版与 OTA 升级仍待原生验证，详见 [OTA 报告](docs/validation/OTA_REPORT.md)。
 
 ## 开发与检查
 
@@ -53,7 +54,7 @@ macOS 开发时，在项目根目录（包含 `Cargo.toml` 的目录）执行：
 
 ```bash
 GULU_DATA_DIR="$PWD/dist/manual-test" GULU_DIAGNOSTICS=1 \
-  'dist/aarch64-apple-darwin/GuluTwist Break Station.app/Contents/MacOS/gulu-twist' \
+  'dist/run-arm64/GuluTwist Break Station.app/Contents/MacOS/gulu-twist' \
   2>dist/manual-test.log
 ```
 
@@ -85,9 +86,9 @@ Mac 正常运行只在菜单栏显示入口，打开设置也不占 Dock 或 ⌘
 - [使用说明](docs/user-guide.md)
 - [其它机器验证步骤](docs/validation/MANUAL_TEST_GUIDE.md)
 - [架构决策](docs/architecture/decisions.md)
-- [OTA 自动更新文档](docs/ota/README.md)（需求已确认：Velopack + GitHub Releases、全量更新、草稿手动发布；尚未实现）
+- [OTA 自动更新文档](docs/ota/README.md)（Velopack + GitHub Releases、全量更新、草稿手动发布）
 - [OTA 完整实现计划](docs/implementation/OTA_IMPLEMENTATION_PLAN.md)（13 项任务、文件改动、发布流程与三目标验收）
 - [需求文档](docs/requirements/PRD.md) / [实施追踪](task_plan.md)
 - [紧凑胶囊悬浮窗实现计划](docs/implementation/FLOATING_WIDGET_PLAN.md)（已实现，本机主要交互已验证）
 
-当前版本没有账号、云同步、自动更新或开机启动。本轮 OTA 按无正式平台证书的预览版条件实现，不接入额外的更新签名验证；平台和更新实机验收仍待完成。正式代码签名与公证可在后续正式发行时接入。
+当前版本支持后台检查下载和用户确认后重启更新，没有账号、云同步或开机启动。本轮 OTA 按无正式平台证书的预览版条件实现，不接入额外的更新签名验证；实际平台验证范围见 [OTA 报告](docs/validation/OTA_REPORT.md)。正式代码签名与公证可在后续正式发行时接入。

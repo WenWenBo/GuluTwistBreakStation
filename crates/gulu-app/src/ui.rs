@@ -91,6 +91,17 @@ fn caption(text: impl Into<SharedString>) -> Stateful<Div> {
         .text_color(rgb(MUTED))
         .child(text)
 }
+fn update_caption(id: &'static str, text: impl Into<SharedString>) -> Stateful<Div> {
+    let text = text.into();
+    div()
+        .id(id)
+        .role(Role::Label)
+        .aria_label(text.clone())
+        .text_size(px(13.))
+        .line_height(px(20.))
+        .text_color(rgb(MUTED))
+        .child(text)
+}
 fn heading(text: impl Into<SharedString>) -> Div {
     div()
         .text_size(px(17.))
@@ -166,6 +177,8 @@ pub struct MainView {
     error: String,
     confirm_clear: bool,
     pending_page: Option<usize>,
+    pending_update: bool,
+    saving_update: bool,
     save_destination: Option<usize>,
 }
 impl MainView {
@@ -218,13 +231,35 @@ impl MainView {
             error: String::new(),
             confirm_clear: false,
             pending_page: None,
+            pending_update: false,
+            saving_update: false,
             save_destination: None,
         }
     }
     pub fn shows_countdown(&self) -> bool {
         self.page == 0
     }
+    pub fn guard_update(&mut self, _w: &mut Window, cx: &mut Context<Self>) -> bool {
+        if self.page == 1 && self.dirty(cx) {
+            self.pending_update = true;
+            self.pending_page = Some(3);
+            cx.notify();
+            true
+        } else {
+            false
+        }
+    }
+    pub fn update_save_failed(&mut self, cx: &mut Context<Self>) {
+        self.saving_update = false;
+        self.pending_update = false;
+        cx.notify();
+    }
     pub fn saved(&mut self, cx: &mut Context<Self>) {
+        if self.saving_update {
+            self.saving_update = false;
+            self.pending_update = false;
+            let _ = self.tx.try_send(Event::Command(Command::RestartUpdate));
+        }
         self.page = self.save_destination.take().unwrap_or(0);
         self.pending_page = None;
         self.error.clear();
@@ -260,6 +295,8 @@ impl MainView {
         self.error.clear();
         self.pending_page = None;
         self.save_destination = None;
+        self.pending_update = false;
+        self.saving_update = false;
     }
     fn reminder_values(&self, i: usize, cx: &App) -> Result<(u32, u32), String> {
         if self.form.reminders[i].mode == ReminderMode::Gentle {
@@ -305,6 +342,7 @@ impl MainView {
             .map_or(true, |s| s != self.shared.borrow().settings)
     }
     pub fn navigate(&mut self, page: usize, w: &mut Window, cx: &mut Context<Self>) {
+        self.pending_update = false;
         if self.shared.borrow().saving {
             return;
         }
@@ -325,10 +363,13 @@ impl MainView {
                 s.onboarded = true;
                 self.error.clear();
                 self.save_destination = self.pending_page.take();
+                self.saving_update = self.pending_update;
                 let _ = self.tx.try_send(Event::Command(Command::Save(s)));
             }
             Err(e) => {
                 self.error = e;
+                self.pending_update = false;
+                self.saving_update = false;
                 self.pending_page = None;
                 self.save_destination = None;
             }
@@ -862,6 +903,7 @@ impl MainView {
                                 .disabled(s.saving)
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     this.pending_page = None;
+                                    this.pending_update = false;
                                     cx.notify();
                                 })),
                         )
@@ -870,9 +912,15 @@ impl MainView {
                                 .label("放弃修改")
                                 .disabled(s.saving)
                                 .on_click(cx.listener(|this, _, w, cx| {
+                                    let restart = this.pending_update;
                                     let page = this.pending_page.take().unwrap_or(0);
                                     this.reset_form(w, cx);
                                     this.page = page;
+                                    if restart {
+                                        let _ = this
+                                            .tx
+                                            .try_send(Event::Command(Command::RestartUpdate));
+                                    }
                                     cx.notify();
                                 })),
                         )
@@ -1030,6 +1078,9 @@ impl MainView {
         content
     }
     fn about(&self) -> Div {
+        let s = self.shared.borrow();
+        let u = &s.update;
+        let automatic = self.tx.clone();
         card()
             .gap_4()
             .child(
@@ -1044,7 +1095,10 @@ impl MainView {
                             .gap_1()
                             .child(heading("咕嘟扭扭放风站"))
                             .child(caption("GuluTwist Break Station"))
-                            .child(caption("0.1.0 · 个人预览版")),
+                            .child(caption(format!(
+                                "{} · 个人预览版",
+                                env!("CARGO_PKG_VERSION")
+                            ))),
                     ),
             )
             .child(
@@ -1062,11 +1116,72 @@ impl MainView {
             .child(caption(
                 "轻轻活动到舒适的位置；如厕按个人需要。任何时候都可以紧急退出。",
             ))
+            .child(heading("应用更新"))
+            .child(update_caption("update-status", u.status.clone()))
+            .child(update_caption(
+                "update-last-success",
+                if u.last_success > 0 {
+                    chrono::DateTime::from_timestamp(u.last_success, 0)
+                        .map(|d| {
+                            format!(
+                                "最近成功检查：{}",
+                                d.with_timezone(&chrono::Local).format("%Y-%m-%d %H:%M")
+                            )
+                        })
+                        .unwrap_or_default()
+                } else {
+                    String::new()
+                },
+            ))
+            .child(update_caption("update-error", u.error.clone()).text_color(rgb(DANGER)))
+            .child(
+                div()
+                    .flex()
+                    .gap_3()
+                    .child(
+                        button("check-update", "检查更新", Command::CheckUpdate, &self.tx)
+                            .disabled(!u.available || u.busy || u.ready),
+                    )
+                    .child(
+                        button(
+                            "restart-update",
+                            "重启并更新",
+                            Command::RestartUpdate,
+                            &self.tx,
+                        )
+                        .primary()
+                        .disabled(!u.ready || u.busy),
+                    ),
+            )
+            .child(
+                Switch::new("automatic-update")
+                    .checked(u.automatic)
+                    .label("自动检查并后台下载更新")
+                    .disabled(!u.available || s.saving)
+                    .on_click(move |value, _, _| {
+                        let _ =
+                            automatic.try_send(Event::Command(Command::AutomaticUpdate(*value)));
+                    }),
+            )
+            .child(update_caption("update-notes", u.notes.clone()))
             .child(button("quit", "退出咕嘟扭扭", Command::Quit, &self.tx).outline())
     }
 }
 impl Render for MainView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if self.shared.borrow().update.preparing {
+            let s = self.shared.borrow();
+            return div()
+                .size_full()
+                .v_flex()
+                .p_6()
+                .gap_4()
+                .bg(rgb(PAPER))
+                .child(update_caption("preparing-update", s.update.status.clone()))
+                .child(update_caption("preparing-error", s.update.error.clone()))
+                .child(caption("正在确认保存结果，请稍候。"))
+                .into_any_element();
+        }
         let narrow = window.viewport_size().width < px(760.);
         let mut nav = div().v_flex().gap_2().flex_1();
         for (i, name) in NAV.iter().enumerate() {
@@ -1315,6 +1430,7 @@ impl Render for MainView {
                     .child(body)
                     .children(footer),
             )
+            .into_any_element()
     }
 }
 

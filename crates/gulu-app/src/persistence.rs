@@ -2,9 +2,23 @@ use crate::Event;
 use async_channel::Sender;
 use chrono::Local;
 use gulu_core::*;
-use gulu_storage::{Store, UiPreferences};
+use gulu_storage::{Store, UiPreferences, UpdatePreferences};
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
+pub struct UpdateExit {
+    pub id: u64,
+    pub effects: Vec<Effect>,
+    pub pause: Pause,
+    pub ui: UiPreferences,
+    pub update: UpdatePreferences,
+    pub cancelled: Arc<AtomicBool>,
+}
 use std::{path::PathBuf, sync::mpsc, time::Duration};
 pub enum Job {
+    SaveUpdate(u64, UpdatePreferences),
+    PrepareUpdateExit(Box<UpdateExit>),
     SaveUi(u64, UiPreferences),
     Save(Settings),
     Commit(Vec<Effect>, Option<BreakSession>, Pause),
@@ -13,8 +27,11 @@ pub enum Job {
     Recover(bool),
     Flush,
     Barrier(async_channel::Sender<()>),
+    Stop(async_channel::Sender<()>),
 }
 pub struct Loaded {
+    pub update: UpdatePreferences,
+    pub update_warning: String,
     pub ui: UiPreferences,
     pub ui_warning: String,
     pub settings: Settings,
@@ -41,7 +58,16 @@ pub fn start(path: PathBuf, tx: Sender<Event>) -> (mpsc::Sender<Job>, Loaded) {
                 format!("悬浮窗设置无法读取，暂时关闭；原数据已保留：{e}"),
             ),
         };
+        let (update, update_warning) = match s.update_preferences() {
+            Ok(p) => (p, String::new()),
+            Err(e) => (
+                UpdatePreferences::default(),
+                format!("更新设置无法读取，更新已停用，原数据已保留：{e}"),
+            ),
+        };
         Ok(Loaded {
+            update,
+            update_warning,
             ui,
             ui_warning,
             settings,
@@ -52,6 +78,8 @@ pub fn start(path: PathBuf, tx: Sender<Event>) -> (mpsc::Sender<Job>, Loaded) {
         })
     })();
     let loaded = initial.unwrap_or_else(|e| Loaded {
+        update: UpdatePreferences::default(),
+        update_warning: "请先恢复本地数据".into(),
         ui: UiPreferences::default(),
         ui_warning: String::new(),
         settings: Settings::default(),
@@ -80,6 +108,46 @@ pub fn start(path: PathBuf, tx: Sender<Event>) -> (mpsc::Sender<Job>, Loaded) {
             let flush = matches!(job, Some(Job::Flush));
             let mut barrier = None;
             match job {
+                Some(Job::Stop(done)) => {
+                    drop(store.take());
+                    let _ = done.try_send(());
+                    break;
+                }
+                Some(Job::SaveUpdate(id, prefs)) => {
+                    let result = store
+                        .as_ref()
+                        .ok_or_else(|| "数据不可用".to_string())
+                        .and_then(|s| s.save_update_preferences(&prefs).map_err(|e| e.to_string()));
+                    let _ = tx.try_send(Event::UpdateSaved(id, prefs, result));
+                }
+                Some(Job::PrepareUpdateExit(request)) => {
+                    let result = if request.cancelled.load(Ordering::SeqCst) {
+                        Err("更新重启已取消".into())
+                    } else {
+                        let mut final_effects = pending.clone();
+                        final_effects.extend(request.effects);
+                        store
+                            .as_mut()
+                            .ok_or_else(|| "数据不可用".to_string())
+                            .and_then(|s| {
+                                s.prepare_update_exit(
+                                    &final_effects,
+                                    &request.pause,
+                                    &request.ui,
+                                    &request.update,
+                                    &request.cancelled,
+                                )
+                                .map_err(|e| e.to_string())
+                            })
+                    };
+                    if result.is_ok() {
+                        pending.clear();
+                        dirty = false;
+                        session = None;
+                        pause = request.pause;
+                    }
+                    let _ = tx.try_send(Event::UpdateExitPrepared(request.id, result));
+                }
                 Some(Job::SaveUi(revision, prefs)) => {
                     let result = store
                         .as_ref()

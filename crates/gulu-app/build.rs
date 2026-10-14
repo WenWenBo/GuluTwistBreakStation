@@ -12,9 +12,37 @@ fn main() {
             .strip_prefix(r"\\?\")
             .unwrap_or(&icon_path)
             .replace('\\', "/");
+        let version = std::env::var("CARGO_PKG_VERSION").unwrap();
+        let numbers = format!("{},0", version.replace('.', ","));
         std::fs::write(
             &resource,
-            format!("#pragma code_page(65001)\n1 ICON \"{icon_path}\"\n"),
+            format!(
+                r#"#pragma code_page(65001)
+1 ICON "{icon_path}"
+1 VERSIONINFO
+FILEVERSION {numbers}
+PRODUCTVERSION {numbers}
+FILEOS 0x40004
+FILETYPE 0x1
+BEGIN
+ BLOCK "StringFileInfo"
+ BEGIN
+  BLOCK "040904B0"
+  BEGIN
+   VALUE "FileDescription", "GuluTwist Break Station\0"
+   VALUE "FileVersion", "{version}\0"
+   VALUE "ProductName", "GuluTwist Break Station\0"
+   VALUE "ProductVersion", "{version}\0"
+   VALUE "OriginalFilename", "gulu-twist.exe\0"
+  END
+ END
+ BLOCK "VarFileInfo"
+ BEGIN
+  VALUE "Translation", 0x409, 1200
+ END
+END
+"#
+            ),
         )
         .unwrap();
         embed_resource::compile(&resource, embed_resource::NONE)

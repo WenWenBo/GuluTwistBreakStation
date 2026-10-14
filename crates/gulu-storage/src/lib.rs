@@ -1,10 +1,12 @@
 //! Local transactional settings and activity records.
 mod ui_preferences;
+mod update_preferences;
 use chrono::{DateTime, Duration, FixedOffset, NaiveDate};
 use gulu_core::{ActivityRecord, BreakSession, Effect, Outcome, Pause, Settings};
 use rusqlite::{Connection, OptionalExtension, params};
 use std::path::Path;
 pub use ui_preferences::*;
+pub use update_preferences::*;
 
 #[derive(Debug, thiserror::Error)]
 pub enum StorageError {
@@ -89,6 +91,64 @@ impl Store {
             .validate()
             .map_err(|e| StorageError::Invalid(e.into()))?;
         Ok(prefs)
+    }
+    pub fn update_preferences(&self) -> Result<UpdatePreferences> {
+        let value: UpdatePreferences = self
+            .preference("update_preferences")?
+            .map(|json| serde_json::from_str(&json))
+            .transpose()?
+            .unwrap_or_default();
+        value
+            .validate()
+            .map_err(|e| StorageError::Invalid(e.into()))?;
+        Ok(value)
+    }
+    pub fn save_update_preferences(&self, value: &UpdatePreferences) -> Result<()> {
+        value
+            .validate()
+            .map_err(|e| StorageError::Invalid(e.into()))?;
+        self.connection.execute(
+            "INSERT OR REPLACE INTO preferences VALUES ('update_preferences',?1)",
+            [serde_json::to_string(value)?],
+        )?;
+        Ok(())
+    }
+
+    /// Commit the final state atomically; failure leaves all previously committed data intact.
+    pub fn prepare_update_exit(
+        &mut self,
+        effects: &[Effect],
+        pause: &Pause,
+        ui: &UiPreferences,
+        update: &UpdatePreferences,
+        cancelled: &std::sync::atomic::AtomicBool,
+    ) -> Result<()> {
+        ui.validate().map_err(|e| StorageError::Invalid(e.into()))?;
+        update
+            .validate()
+            .map_err(|e| StorageError::Invalid(e.into()))?;
+        let tx = self.connection.transaction()?;
+        for effect in effects {
+            if let Effect::Record(record) = effect {
+                tx.execute("INSERT OR IGNORE INTO activities(instance_id,local_date,ended_unix,value) VALUES (?1,?2,?3,?4)",params![record.instance_id.to_string(),record.local_date,record.ended_at.timestamp_millis(),serde_json::to_string(record)?])?;
+            }
+        }
+        for (key, value) in [
+            ("pause", serde_json::to_string(pause)?),
+            ("ui_preferences", serde_json::to_string(ui)?),
+            ("update_preferences", serde_json::to_string(update)?),
+        ] {
+            tx.execute(
+                "INSERT OR REPLACE INTO preferences VALUES (?1,?2)",
+                params![key, value],
+            )?;
+        }
+        tx.execute("DELETE FROM preferences WHERE key='active_session'", [])?;
+        if cancelled.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(StorageError::Invalid("更新重启已取消".into()));
+        }
+        tx.commit()?;
+        Ok(())
     }
     pub fn save_ui_preferences(&self, prefs: &UiPreferences) -> Result<()> {
         prefs
@@ -255,6 +315,101 @@ fn decode_settings(json: &str) -> Result<(Settings, bool)> {
 mod tests {
     use super::*;
     use gulu_core::{ClockSample, Engine, ReminderKind};
+
+    #[test]
+    fn update_preferences_default_roundtrip_and_corruption_are_isolated() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("update.db");
+        let store = Store::open(&path).unwrap();
+        assert!(store.update_preferences().unwrap().automatic);
+        let prefs = UpdatePreferences {
+            automatic: false,
+            last_attempt: 123,
+            ..Default::default()
+        };
+        store.save_update_preferences(&prefs).unwrap();
+        drop(store);
+        let store = Store::open(&path).unwrap();
+        assert_eq!(store.update_preferences().unwrap(), prefs);
+        store
+            .connection
+            .execute(
+                "UPDATE preferences SET value=?1 WHERE key='update_preferences'",
+                [r#"{"schema_version":99}"#],
+            )
+            .unwrap();
+        assert!(store.update_preferences().is_err());
+        assert_eq!(store.settings().unwrap(), Settings::default());
+        assert_eq!(
+            store.preference("update_preferences").unwrap().unwrap(),
+            r#"{"schema_version":99}"#
+        );
+        store
+            .connection
+            .execute(
+                "UPDATE preferences SET value='broken' WHERE key='update_preferences'",
+                [],
+            )
+            .unwrap();
+        assert!(store.update_preferences().is_err());
+        assert_eq!(store.settings().unwrap(), Settings::default());
+    }
+    #[test]
+    fn update_exit_rolls_back_failure_and_cancellation_then_retries_atomically() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let mut store = Store::memory().unwrap();
+        let mut engine = Engine::new(
+            Settings {
+                onboarded: true,
+                ..Default::default()
+            },
+            clock(),
+            Pause::None,
+        )
+        .unwrap();
+        let effects = engine.manual_complete(ReminderKind::Water, clock());
+        let ui = UiPreferences {
+            floating_enabled: true,
+            ..Default::default()
+        };
+        let update = UpdatePreferences {
+            automatic: false,
+            ..Default::default()
+        };
+        let cancel = AtomicBool::new(true);
+        assert!(
+            store
+                .prepare_update_exit(&effects, &Pause::Manual, &ui, &update, &cancel)
+                .is_err()
+        );
+        assert!(store.records(clock().wall.date_naive()).unwrap().is_empty());
+        assert_eq!(store.pause().unwrap(), Pause::None);
+        assert!(!store.ui_preferences().unwrap().floating_enabled);
+        cancel.store(false, Ordering::SeqCst);
+        store.connection.execute_batch("CREATE TRIGGER fail_update BEFORE INSERT ON preferences WHEN NEW.key='update_preferences' BEGIN SELECT RAISE(ABORT,'disk failure'); END;").unwrap();
+        assert!(
+            store
+                .prepare_update_exit(&effects, &Pause::Manual, &ui, &update, &cancel)
+                .is_err()
+        );
+        assert!(store.records(clock().wall.date_naive()).unwrap().is_empty());
+        assert_eq!(store.pause().unwrap(), Pause::None);
+        assert!(!store.ui_preferences().unwrap().floating_enabled);
+        store
+            .connection
+            .execute_batch("DROP TRIGGER fail_update")
+            .unwrap();
+        store
+            .prepare_update_exit(&effects, &Pause::Manual, &ui, &update, &cancel)
+            .unwrap();
+        store
+            .prepare_update_exit(&effects, &Pause::Manual, &ui, &update, &cancel)
+            .unwrap();
+        assert_eq!(store.records(clock().wall.date_naive()).unwrap().len(), 1);
+        assert_eq!(store.pause().unwrap(), Pause::Manual);
+        assert_eq!(store.ui_preferences().unwrap(), ui);
+        assert_eq!(store.update_preferences().unwrap(), update);
+    }
 
     #[test]
     fn ui_preferences_are_independent_and_survive_reopen() {

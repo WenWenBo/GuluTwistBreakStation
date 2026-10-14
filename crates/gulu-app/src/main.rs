@@ -9,6 +9,7 @@ mod reminder_rows;
 mod resident;
 mod tray;
 mod ui;
+mod update;
 use async_channel::Sender;
 use chrono::{Duration as ChronoDuration, Local};
 use fs2::FileExt;
@@ -21,6 +22,10 @@ use uuid::Uuid;
 gpui_kit::actions!(station, [QuitApplication, ShowStation, CloseStationWindow]);
 #[derive(Clone, Debug)]
 pub enum Command {
+    CheckUpdate,
+    RestartUpdate,
+    UpdateLater,
+    AutomaticUpdate(bool),
     OpenHome,
     OpenSettings,
     SetFloating(bool),
@@ -48,6 +53,9 @@ pub enum Command {
     Recover(bool),
 }
 pub enum Event {
+    Update(update::ResultEvent),
+    UpdateSaved(u64, gulu_storage::UpdatePreferences, Result<(), String>),
+    UpdateExitPrepared(u64, Result<(), String>),
     UiSaved(u64, Result<(), String>),
     FloatingMoved(gulu_storage::FloatingPosition),
     Tick,
@@ -65,6 +73,7 @@ pub enum Event {
     Notice(String),
 }
 pub struct Snapshot {
+    pub update: update::state::View,
     pub ui: gulu_storage::UiPreferences,
     pub ui_saving: bool,
     pub ui_error: String,
@@ -84,6 +93,14 @@ pub struct Snapshot {
     pub tray_error: String,
 }
 struct Controller {
+    update: update::state::State,
+    update_backend: Option<std::sync::Arc<update::backend::Backend>>,
+    update_jobs: Option<mpsc::Sender<update::Work>>,
+    update_dialog: Option<(AnyWindowHandle, Entity<update::dialog::Dialog>)>,
+    update_restart: Option<update::controller::Restart>,
+    update_prompt_due: std::time::Instant,
+    quit_after_update: bool,
+    update_armed: bool,
     preferences: preferences::Preferences,
     floating_window: Option<(AnyWindowHandle, Entity<floating::FloatingView>)>,
     floating_menu: Option<AnyWindowHandle>,
@@ -295,6 +312,8 @@ impl Controller {
             return;
         }
         self.quitting = true;
+        self.cancel_update();
+        self.close_update_dialog(cx);
         self.pending_open.take_ready(false, false, true);
         self.hide_floating(cx);
         self.close_reminder_rows(cx);
@@ -459,6 +478,21 @@ impl Controller {
         {
             return;
         }
+        if self.update_restart.is_some() {
+            if matches!(&event, Event::Command(Command::Quit)) {
+                self.cancel_update();
+                self.quit_after_update = true;
+                return;
+            }
+            if matches!(&event, Event::Command(c) if !matches!(c, Command::Open | Command::Hide | Command::UpdateLater))
+                || matches!(
+                    &event,
+                    Event::FloatingMoved(_) | Event::Notice(_) | Event::Error(_)
+                )
+            {
+                return;
+            }
+        }
         let now = platform::clock();
         let event = match event {
             Event::Command(Command::CloseWindow)
@@ -471,6 +505,12 @@ impl Controller {
             }
             Event::Command(Command::CloseWindow) => Event::Command(
                 if self
+                    .update_dialog
+                    .as_ref()
+                    .is_some_and(|(w, _)| Some(*w) == cx.active_window())
+                {
+                    Command::UpdateLater
+                } else if self
                     .floating_menu
                     .is_some_and(|w| Some(w) == cx.active_window())
                 {
@@ -534,6 +574,9 @@ impl Controller {
             self.apply(effects, cx);
         }
         match event {
+            Event::Update(event) => self.update_event(event, cx),
+            Event::UpdateSaved(id, prefs, result) => self.update_saved(id, prefs, result),
+            Event::UpdateExitPrepared(id, result) => self.update_prepared(id, result, cx),
             Event::FloatingMoved(position) => {
                 if self.preferences.set_position(Some(position)) {
                     self.position_due =
@@ -552,6 +595,25 @@ impl Controller {
                 }
             }
             Event::Command(c) => match c {
+                Command::CheckUpdate => self.check_update(true),
+                Command::RestartUpdate => self.restart_update(cx),
+                Command::UpdateLater => {
+                    self.update.later();
+                    self.close_update_dialog(cx);
+                }
+                Command::AutomaticUpdate(value) => {
+                    if self.update.available && !self.update.saving {
+                        let mut prefs = self.update.prefs.clone();
+                        prefs.automatic = value;
+                        self.update.pending_automatic = Some(value);
+                        if !value {
+                            self.update.suppress_download_prompt = true;
+                            self.update.later();
+                            self.close_update_dialog(cx);
+                        }
+                        self.save_update(prefs);
+                    }
+                }
                 Command::OpenHome => self.request_main(OpenTarget::Home, cx),
                 Command::OpenSettings => self.request_main(OpenTarget::Settings, cx),
                 Command::SetFloating(enabled) => self.set_floating(enabled, cx),
@@ -708,7 +770,10 @@ impl Controller {
                     },
                     Err(e) => {
                         self.snapshot.borrow_mut().message =
-                            format!("未保存，当前设置没有改变：{e}")
+                            format!("未保存，当前设置没有改变：{e}");
+                        if let Some((_, v)) = &self.main {
+                            v.update(cx, |v, cx| v.update_save_failed(cx));
+                        }
                     }
                 }
             }
@@ -815,7 +880,7 @@ impl Controller {
             self.apply(effects, cx);
             self.close_overlays(cx);
         }
-        if !self.quitting && !self.snapshot.borrow().recovery {
+        if !self.quitting && self.update_restart.is_none() && !self.snapshot.borrow().recovery {
             let effects = self.engine.tick(now);
             self.apply(effects, cx);
         }
@@ -825,6 +890,11 @@ impl Controller {
         }
         self.check_tray(false, cx);
         self.open_pending_main(cx);
+        if self.quit_after_update && self.update_restart.is_none() {
+            self.quit_after_update = false;
+            let _ = self.tx.try_send(Event::Command(Command::Quit));
+        }
+        self.sync_update(cx);
         self.refresh(cx);
         if trace_resident {
             self.log_resident_state("event", cx);
@@ -955,12 +1025,16 @@ impl Controller {
         if self.quitting {
             return 1000;
         }
+        if self.update_restart.is_some() {
+            return 250;
+        }
         let mut wait = self.engine.next_wake_ms().min(
             self.tray_check_due
                 .saturating_duration_since(std::time::Instant::now())
                 .as_millis()
                 .max(1) as u64,
         );
+        wait = wait.min(self.update.wait_ms(chrono::Utc::now().timestamp()));
         if !self.preferences.saving()
             && let Some(due) = self.position_due
         {
@@ -992,6 +1066,7 @@ fn main() {
     }
 }
 fn run() -> anyhow::Result<()> {
+    update::backend::startup();
     let data = std::env::var_os("GULU_DATA_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| {
@@ -1035,6 +1110,7 @@ fn run() -> anyhow::Result<()> {
         loaded.pause.clone(),
     )?;
     let snapshot = Rc::new(RefCell::new(Snapshot {
+        update: Default::default(),
         ui: loaded.ui.clone(),
         ui_saving: false,
         ui_error: loaded.ui_warning,
@@ -1148,6 +1224,18 @@ fn run() -> anyhow::Result<()> {
             .map_err(|e| eprintln!("托盘创建失败：{e}"))
             .ok();
         let mut c = Controller {
+            update: update::state::State::new(
+                loaded.update,
+                chrono::Utc::now().timestamp(),
+                (Uuid::new_v4().as_u128() % 1801) as i64,
+            ),
+            update_backend: None,
+            update_jobs: None,
+            update_dialog: None,
+            update_restart: None,
+            update_prompt_due: std::time::Instant::now(),
+            quit_after_update: false,
+            update_armed: false,
             preferences: preferences::Preferences::new(loaded.ui),
             floating_window: None,
             floating_menu: None,
@@ -1178,6 +1266,7 @@ fn run() -> anyhow::Result<()> {
             previous_focus: None,
             notice_tags: Default::default(),
         };
+        c.init_update(loaded.update_warning);
         c.check_tray(true, cx);
         c.refresh(cx);
         let needs_attention = {
@@ -1199,7 +1288,12 @@ fn run() -> anyhow::Result<()> {
             {
                 let mut c = quitting.borrow_mut();
                 c.begin_quit(cx);
-                let _ = c.jobs.send(Job::Barrier(done));
+                let job = if c.update_armed {
+                    Job::Stop(done)
+                } else {
+                    Job::Barrier(done)
+                };
+                let _ = c.jobs.send(job);
             }
             let timer = cx.background_executor().timer(Duration::from_secs(2));
             async move {

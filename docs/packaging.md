@@ -1,42 +1,45 @@
-# GitHub Actions 自动打包
+# 打包与草稿发布
 
-本页描述当前尚未接入 OTA 的打包流程。已确认的 Velopack 安装包、全量更新包与“自动构建草稿、手动公开”改造见 [OTA 完整实现计划](implementation/OTA_IMPLEMENTATION_PLAN.md)；下文现有自动公开行为将在该计划实施后更新。
+版本来自根 `Cargo.toml` 的 `workspace.package.version`，首个 OTA 版本为 `0.1.1`。三个目标使用同一产品版本、独立稳定渠道：
 
-工作流配置位于 `.github/workflows/check.yml`。只有 `release` 分支收到 push 时才运行；每次都构建以下三个目标。`main`、功能分支、标签推送和 PR 事件均不触发这个工作流，也没有手动触发入口。
-
-| 下载产物 | 构建机器 | 内容 |
+| Rust 目标 | Velopack RID / channel | 首次安装 |
 | --- | --- | --- |
-| `desktop-macos-arm64` | `macos-15` | Apple Silicon `.app` 的 ZIP，macOS 15+ |
-| `desktop-macos-intel` | `macos-15-intel` | Intel `.app` 的 ZIP，macOS 15+ |
-| `desktop-windows-x64` | `windows-2022` | Windows x64 便携 ZIP，包含 EXE 和图标 |
+| aarch64-apple-darwin | osx-arm64 / osx-arm64-stable | Portable.zip 中的 `.app` |
+| x86_64-apple-darwin | osx-x64 / osx-x64-stable | Portable.zip 中的 `.app` |
+| x86_64-pc-windows-msvc | win-x64 / win-x64-stable | Setup.exe 用户安装版 |
 
-每个目标先执行格式检查、workspace 测试和编译检查，然后调用现有平台打包脚本。Mac 两个架构分别构建，不是 Universal 包；每份 Artifact 只收录一个带 build 号的 ZIP，避免重复上传兼容旧名称的同一份包。Windows 使用 `-SkipInstaller`，不生成 Setup 安装程序。一个目标失败不会取消其他目标。
+## 本地构建
 
-三个目标全部成功后，工作流自动发布 GitHub Release，附件包含三份 ZIP 和 `SHA256SUMS.txt`。任何构建失败都会阻止发布。发布步骤使用 GitHub 自带的 `GITHUB_TOKEN`，仅该任务拥有 `contents: write` 权限，无需另配个人令牌。
-
-标签格式为 `v<应用版本>-build.<工作流运行序号>`，例如 `v0.1.0-build.3`。每次 push 使用新的序号，即使应用版本没有变化也不会覆盖旧包；此序号与 Mac 应用内的 build 号独立。标签指向本次构建的准确提交。发布脚本先创建草稿，所有附件上传成功后才公开；上传失败可重跑任务恢复。同一次运行重跑使用相同标签，已经公开的 Release 不覆盖。
-
-## 发布一次构建
-
-在功能分支开发，准备好后合并到 `main`。需要发包时，在工作区干净的情况下执行：
+安装 Rust（仓库锁定 1.97.1）、Python 3.11+ 和 .NET SDK **10.0.402**。Mac 另需 Xcode Command Line Tools；Windows 使用 MSVC 工具链。`.config/dotnet-tools.json` 固定 vpk **1.2.161**，与 Rust SDK 一致。.NET 只用于构建，用户运行 Rust 应用无需 .NET。
 
 ```bash
-git fetch origin
-git switch release
-git merge --ff-only origin/release
-git merge origin/main
-git push origin release
-git switch main
+./scripts/check.sh
+scripts/package-macos.sh aarch64-apple-darwin
+scripts/package-macos.sh x86_64-apple-darwin
 ```
 
-首次在另一份克隆中使用 `release` 时，可先执行 `git switch --track origin/release`。如果没有新提交，push 不会产生新构建。若合并有冲突，先解决并提交，再推送。
+Windows PowerShell：
 
-触发规则读取对应分支中的 workflow 文件。新功能分支应从包含本配置的最新 `main` 创建；已存在且保留旧 `on: [push, pull_request, workflow_dispatch]` 配置的分支，需要同步这项变更，否则旧规则仍可能触发构建。新增其他 workflow 时也要保持相同的触发约束。
+```powershell
+./scripts/package-windows.ps1
+```
 
-## 下载与验证
+Mac 可用第二参数 `debug` 做诊断；正式发布默认 release。产物位于 `dist/ota/<Rust 目标>/`，含首次包、`*-full.nupkg`、`releases.<channel>.json`、源码提交元数据及 vpk 辅助清单。CI 发布脚本只选择经校验的首次包、全量包、渠道清单、build 元数据和汇总校验文件。旧 Inno 脚本保留为历史资料，不参与 OTA 构建。
 
-打开 [Releases 页面](https://github.com/WenWenBo/GuluTwistBreakStation/releases)，在对应版本的 **Assets** 下载平台 ZIP；公开仓库的 Release 附件可以直接分享给使用者。Release 附件不受 Actions Artifact 保留期影响，除非手动删除或受仓库管理策略影响，会持续保留。
+Mac 在 vpk 加入 UpdateMac 和 sq.version 后做 ad-hoc 临时签名，随后生成两个归档；脚本解压最终 ZIP 再验证签名和图标。Windows 显式保留 `app.gulutwist.breakstation` AUMID，固定当前用户安装，不要求管理员权限。两端没有正式平台证书，Mac 未公证。
 
-也可以打开 [Actions 页面](https://github.com/WenWenBo/GuluTwistBreakStation/actions)，进入对应 `release` 提交的 `Desktop builds` 运行记录，在底部 **Artifacts** 下载所需平台包。Artifact 保存期限遵循仓库设置，通常需要登录 GitHub。发布任务的摘要提供 Release 链接。ZIP 不提交到 Git 历史；Git 中仅新增指向源码提交的发布标签。
+## 发布步骤
 
-Mac 使用现有脚本的 ad-hoc 签名，尚未配置开发者签名和公证。Windows 构建在 Windows Server 2022 上执行；构建通过不替代 Windows 10 的实际运行验证。跨平台通知、多屏遮罩和睡眠恢复仍按 `docs/validation/MANUAL_TEST_GUIDE.md` 验证。
+1. 提升 Cargo 产品版本、更新锁文件并添加 `docs/releases/<version>.md`；同一版本不能用于不同代码或不同构建内容。
+2. 合并经过验证的代码到 `release` 分支并推送。只有这条分支的 push 触发发布工作流；PR 验证没有发布权限。
+3. 三个目标全部成功后，CI 校验平台、架构、版本、内嵌清单、摘要、源码 SHA 和完整性，创建标签名为 `v<version>` 的 **草稿 Release**。
+4. 下载草稿附件，在隔离数据和安装位置执行 [实机验收](validation/OTA_MANUAL_TESTS.md)。草稿对匿名客户端不可见，使用受限的诊断文件源验证同一份包。
+5. 验收通过后，由维护者在 GitHub 点击发布。自动化不会执行公开操作。首次公开 `0.1.1` 后旧用户仍需手动安装一次。
+
+发布脚本：`scripts/publish-release.sh dist/release`；CI 提供 `GH_TOKEN`、`GH_REPO`、`GITHUB_SHA`。只有发布任务具有 `contents: write` 权限。客户端不携带这些令牌。
+
+上传失败时，只能用原始三份 Actions artifact 重跑发布任务；发布清单把每个文件的大小与 SHA256 绑定到该草稿。同一草稿不同 SHA、不同字节、未知附件、已有同名异提交标签均拒绝覆盖。已公开版本不可修改；修复需要提升版本重新走草稿流程。GitHub 查询失败不会当成“版本不存在”。
+
+等上传工作流完整结束后再手动发布，避免人工公开与附件上传并发。
+
+构建成功不代表原生安装与升级通过。当前实测范围、外机缺口和 GitHub 限流情况见 [OTA 验证报告](validation/OTA_REPORT.md)。
