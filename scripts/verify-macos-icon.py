@@ -9,6 +9,10 @@ from pathlib import Path
 
 def verify(bundle):
     metadata = plistlib.loads((bundle / "Contents/Info.plist").read_bytes())
+    assert metadata.get("CFBundleIdentifier") == "app.gulutwist.breakstation", "app identity changed"
+    assert metadata.get("CFBundlePackageType") == "APPL", "expected an application bundle"
+    assert metadata.get("LSUIElement") is True, "resident app must start as an agent"
+    assert not metadata.get("LSBackgroundOnly", False), "resident app must allow windows"
     name = metadata["CFBundleIconFile"]
     icon = bundle / "Contents/Resources" / name
     if not icon.suffix:

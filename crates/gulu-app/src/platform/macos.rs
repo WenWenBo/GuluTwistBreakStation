@@ -168,14 +168,26 @@ pub fn contains_pointer(window: &Window) -> bool {
     })
 }
 pub fn startup_error(message: &str) {
+    show_error(
+        "咕嘟扭扭暂时无法启动",
+        &format!("提醒没有启动，请检查数据目录是否可写。\n{message}"),
+    );
+}
+pub fn show_error(title: &str, message: &str) {
     if let Some(mtm) = objc2::MainThreadMarker::new() {
         let alert = objc2_app_kit::NSAlert::new(mtm);
-        alert.setMessageText(&NSString::from_str("咕嘟扭扭暂时无法启动"));
-        alert.setInformativeText(&NSString::from_str(&format!(
-            "提醒没有启动，请检查数据目录是否可写。\n{message}"
-        )));
+        alert.setMessageText(&NSString::from_str(title));
+        alert.setInformativeText(&NSString::from_str(message));
         alert.runModal();
     }
+}
+pub fn show_main(window: &Window) -> anyhow::Result<()> {
+    let win = ns_window(window)?;
+    if win.isMiniaturized() {
+        win.deminiaturize(None);
+    }
+    win.makeKeyAndOrderFront(None);
+    Ok(())
 }
 pub fn is_visible(window: &Window) -> bool {
     ns_window(window).is_ok_and(|w| w.isVisible() && !w.isMiniaturized())

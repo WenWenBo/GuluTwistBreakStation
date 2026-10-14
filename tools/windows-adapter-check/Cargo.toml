@@ -9,5 +9,6 @@ async-channel = "2"
 chrono = "0.4"
 anyhow = "1"
 raw-window-handle = "0.6"
+tray-icon = "=0.24.2"
 gulu-core = { path = "../../crates/gulu-core" }
 windows-sys = { version = "0.61", features = ["Win32_Graphics_Gdi", "Win32_Foundation", "Win32_System_RemoteDesktop", "Win32_System_LibraryLoader", "Win32_UI_WindowsAndMessaging"] }

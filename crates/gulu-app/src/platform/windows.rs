@@ -128,6 +128,7 @@ pub fn init(sender: Sender<Event>) {
     });
 }
 pub fn prepare_overlay(window: &Window) -> anyhow::Result<()> {
+    prepare_tool_window(window)?;
     if let RawWindowHandle::Win32(h) = HasWindowHandle::window_handle(window)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?
         .as_raw()
@@ -140,7 +141,7 @@ pub fn prepare_overlay(window: &Window) -> anyhow::Result<()> {
                 0,
                 0,
                 0,
-                SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED,
             ) == 0
             {
                 anyhow::bail!("无法置顶遮罩");
@@ -190,10 +191,14 @@ pub fn contains_pointer(window: &Window) -> bool {
     false
 }
 pub fn startup_error(message: &str) {
-    let title: Vec<u16> = "咕嘟扭扭暂时无法启动\0".encode_utf16().collect();
-    let text: Vec<u16> = format!("提醒没有启动，请检查数据目录是否可写。\n{message}\0")
-        .encode_utf16()
-        .collect();
+    show_error(
+        "咕嘟扭扭暂时无法启动",
+        &format!("提醒没有启动，请检查数据目录是否可写。\n{message}"),
+    );
+}
+pub fn show_error(title: &str, message: &str) {
+    let title: Vec<u16> = title.encode_utf16().chain(Some(0)).collect();
+    let text: Vec<u16> = message.encode_utf16().chain(Some(0)).collect();
     unsafe {
         MessageBoxW(
             std::ptr::null_mut(),
@@ -202,6 +207,21 @@ pub fn startup_error(message: &str) {
             MB_OK | MB_ICONERROR,
         );
     }
+}
+pub fn show_main(window: &Window) -> anyhow::Result<()> {
+    let hwnd = floating_hwnd(window)?;
+    unsafe {
+        ShowWindow(
+            hwnd,
+            if IsIconic(hwnd) != 0 {
+                SW_RESTORE
+            } else {
+                SW_SHOW
+            },
+        );
+        SetForegroundWindow(hwnd);
+    }
+    Ok(())
 }
 pub fn is_visible(window: &Window) -> bool {
     if let Ok(h) = HasWindowHandle::window_handle(window) {
@@ -254,7 +274,24 @@ fn floating_hwnd(window: &Window) -> anyhow::Result<HWND> {
         anyhow::bail!("窗口类型不受支持")
     }
 }
+fn prepare_tool_window(window: &Window) -> anyhow::Result<()> {
+    let hwnd = floating_hwnd(window)?;
+    unsafe {
+        let ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
+        SetLastError(0);
+        let previous = SetWindowLongPtrW(
+            hwnd,
+            GWL_EXSTYLE,
+            ((ex & !WS_EX_APPWINDOW) | WS_EX_TOOLWINDOW) as isize,
+        );
+        if previous == 0 && GetLastError() != 0 {
+            return Err(std::io::Error::last_os_error().into());
+        }
+    }
+    Ok(())
+}
 pub fn prepare_floating(window: &Window, _: bool) -> anyhow::Result<()> {
+    prepare_tool_window(window)?;
     let hwnd = floating_hwnd(window)?;
     unsafe {
         let style = GetWindowLongPtrW(hwnd, GWL_STYLE) as u32;
@@ -263,12 +300,6 @@ pub fn prepare_floating(window: &Window, _: bool) -> anyhow::Result<()> {
             GWL_STYLE,
             ((style & !(WS_CAPTION | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX)) | WS_POPUP)
                 as isize,
-        );
-        let ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
-        SetWindowLongPtrW(
-            hwnd,
-            GWL_EXSTYLE,
-            ((ex & !WS_EX_APPWINDOW) | WS_EX_TOOLWINDOW) as isize,
         );
         if SetWindowPos(
             hwnd,

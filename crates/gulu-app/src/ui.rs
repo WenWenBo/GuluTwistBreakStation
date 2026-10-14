@@ -549,6 +549,14 @@ impl MainView {
                     )),
             );
         }
+        content = content.child(
+            card().child(section("后台常驻", if cfg!(target_os = "macos") {
+                "小站常驻右上角菜单栏，不显示在程序坞。关闭窗口后继续提醒，从菜单栏图标或再次打开应用即可返回。"
+            } else {
+                "关闭窗口后，小站在系统托盘继续提醒。图标可能位于右下角 ∧ 展开区，左键打开小站，右键打开菜单。"
+            }))
+            .child(caption("确认开始后窗口会收起；需要停止所有提醒时，请从图标菜单选择退出。")),
+        );
         let ui_tx = self.tx.clone();
         content = content.child(
             card()
@@ -1123,6 +1131,31 @@ impl Render for MainView {
                                 this.shared.borrow_mut().message.clear();
                                 cx.notify();
                             })),
+                    ),
+            );
+        }
+        if !s.tray_error.is_empty() {
+            body = body.child(
+                card()
+                    .border_color(rgb(DANGER))
+                    .child(heading("请保留小站窗口"))
+                    .child(error_text(s.tray_error.clone()))
+                    .child(
+                        div()
+                            .flex()
+                            .gap_2()
+                            .child(button(
+                                "retry-tray",
+                                "重试常驻图标",
+                                Command::RetryTray,
+                                &self.tx,
+                            ))
+                            .child(button(
+                                "quit-without-tray",
+                                "退出应用",
+                                Command::Quit,
+                                &self.tx,
+                            )),
                     ),
             );
         }
