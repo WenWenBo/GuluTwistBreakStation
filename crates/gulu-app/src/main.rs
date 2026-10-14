@@ -6,6 +6,7 @@ mod persistence;
 mod platform;
 mod preferences;
 mod reminder_rows;
+mod resident;
 mod tray;
 mod ui;
 use async_channel::Sender;
@@ -14,6 +15,7 @@ use fs2::FileExt;
 use gpui_kit::*;
 use gulu_core::*;
 use persistence::Job;
+use resident::OpenTarget;
 use std::{cell::RefCell, path::PathBuf, rc::Rc, sync::mpsc, time::Duration};
 use uuid::Uuid;
 gpui_kit::actions!(station, [QuitApplication, ShowStation, CloseStationWindow]);
@@ -29,6 +31,7 @@ pub enum Command {
     Open,
     CloseWindow,
     Hide,
+    RetryTray,
     PauseMinutes(i64),
     NextDay,
     Pause,
@@ -58,6 +61,7 @@ pub enum Event {
     StorageError(String),
     Error(String),
     Flushed,
+    MainErrorDismissed,
     Notice(String),
 }
 pub struct Snapshot {
@@ -77,6 +81,7 @@ pub struct Snapshot {
     pub backup: bool,
     pub break_active: bool,
     pub storage_error: String,
+    pub tray_error: String,
 }
 struct Controller {
     preferences: preferences::Preferences,
@@ -96,7 +101,10 @@ struct Controller {
     preview: Option<u64>,
     tray: Option<tray::Tray>,
     quitting: bool,
-    close_explained: bool,
+    tray_available: bool,
+    tray_check_due: std::time::Instant,
+    pending_open: resident::PendingOpen,
+    main_error_pending: bool,
     _lock: std::fs::File,
     activation: PathBuf,
     last_day: chrono::NaiveDate,
@@ -107,14 +115,92 @@ struct Controller {
     notice_tags: std::collections::HashMap<Uuid, String>,
 }
 impl Controller {
-    fn open_main(&mut self, cx: &mut App) {
-        self.main_visible = true;
-        if let Some((win, _)) = &self.main
-            && win.update(cx, |_, w, _| w.activate_window()).is_ok()
-        {
-            cx.activate(true);
+    fn log_resident_state(&self, phase: &str, cx: &mut App) {
+        if std::env::var_os("GULU_DIAGNOSTICS").is_none() {
             return;
         }
+        let visible = self.main.as_ref().is_some_and(|(window, _)| {
+            window
+                .update(cx, |_, w, _| platform::is_visible(w))
+                .unwrap_or(false)
+        });
+        eprintln!(
+            "resident_state phase={phase} main_exists={} main_visible={visible} tray_available={} floating_visible={} overlays={} quitting={}",
+            self.main.is_some(),
+            self.tray_available,
+            self.floating_visible,
+            self.overlays.len(),
+            self.quitting,
+        );
+        #[cfg(target_os = "macos")]
+        platform::log_resident_policy();
+    }
+    fn open_main(&mut self, cx: &mut App) {
+        self.request_main(OpenTarget::Restore, cx);
+    }
+    fn request_main(&mut self, target: OpenTarget, cx: &mut App) {
+        if !self.quitting && !self.main_error_pending {
+            self.pending_open.request(target);
+            self.open_pending_main(cx);
+        }
+    }
+    fn open_pending_main(&mut self, cx: &mut App) {
+        if self.main_error_pending {
+            return;
+        }
+        let Some(target) = self.pending_open.take_ready(
+            platform::clock().locked,
+            self.preview.is_some() || self.engine.session.is_some(),
+            self.quitting,
+        ) else {
+            return;
+        };
+        if let Err(error) = self.show_main(cx) {
+            self.main_visible = false;
+            let message = format!("打开小站失败：{error}");
+            self.snapshot.borrow_mut().message = message.clone();
+            eprintln!("{message}");
+            self.main_error_pending = true;
+            let tx = self.tx.clone();
+            // Native modal dialogs run a nested event loop. Present outside an App or
+            // Controller borrow so GPUI callbacks can safely re-enter the application.
+            cx.spawn(async move |_| {
+                platform::show_error("咕嘟扭扭无法打开窗口", &message);
+                let _ = tx.try_send(Event::MainErrorDismissed);
+            })
+            .detach();
+            return;
+        }
+        let page = match target {
+            OpenTarget::Restore => return,
+            OpenTarget::Home => 0,
+            OpenTarget::Settings => 1,
+        };
+        if let Some((handle, view)) = &self.main {
+            let view = view.clone();
+            let _ = handle.update(cx, |_, w, cx| {
+                view.update(cx, |v, cx| v.navigate(page, w, cx))
+            });
+        }
+    }
+    fn show_main(&mut self, cx: &mut App) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            !resident::diagnostic_failure("main-window"),
+            "窗口创建失败（诊断注入）"
+        );
+        if let Some((win, _)) = &self.main {
+            match win.update(cx, |_, w, _| platform::show_main(w)) {
+                Ok(result) => {
+                    result?;
+                    self.main_visible = true;
+                    cx.activate(true);
+                    return Ok(());
+                }
+                // Only recreate a removed window; a native show failure must retain its draft.
+                Err(_) => self.main = None,
+            }
+        }
+        self.main = None;
         let shared = self.snapshot.clone();
         let tx = self.tx.clone();
         let close_tx = tx.clone();
@@ -143,13 +229,82 @@ impl Controller {
                 cx.new(|cx| ui::MainView::new(shared, tx, w, cx))
             },
         );
-        match result {
-            Ok(pair) => {
-                self.main = Some(pair);
-                cx.activate(true);
-            }
-            Err(e) => eprintln!("打开小站失败：{e}"),
+        self.main = Some(result?);
+        self.main_visible = true;
+        cx.activate(true);
+        Ok(())
+    }
+    fn check_tray(&mut self, force: bool, _cx: &mut App) {
+        if self.quitting || (!force && std::time::Instant::now() < self.tray_check_due) {
+            return;
         }
+        self.tray_check_due = std::time::Instant::now() + Duration::from_secs(30);
+        let result = match &self.tray {
+            Some(tray) => tray.check_available(),
+            None => Err(anyhow::anyhow!("菜单栏／系统托盘图标未能创建")),
+        };
+        let available = result.is_ok();
+        let changed = self.tray_available != available;
+        self.tray_available = available;
+        self.snapshot.borrow_mut().tray_error = result
+            .err()
+            .map(|e| format!("常驻图标不可用：{e}。请保留此窗口，重试图标或退出应用。"))
+            .unwrap_or_default();
+        if changed || force {
+            #[cfg(target_os = "macos")]
+            _cx.set_activation_policy(if available {
+                ActivationPolicy::Accessory
+            } else {
+                ActivationPolicy::Regular
+            });
+            if std::env::var_os("GULU_DIAGNOSTICS").is_some() {
+                eprintln!("resident_tray_available={available}");
+            }
+        }
+        if changed && !available {
+            self.pending_open.request(OpenTarget::Restore);
+        }
+    }
+    fn retry_tray(&mut self, cx: &mut App) {
+        if self
+            .tray
+            .as_ref()
+            .is_none_or(|t| t.check_available().is_err())
+        {
+            self.tray.take();
+            self.tray = tray::Tray::new()
+                .map_err(|e| eprintln!("重建托盘失败：{e}"))
+                .ok();
+            self.tray_status.clear();
+        }
+        self.check_tray(true, cx);
+    }
+    fn hide_main(&mut self, cx: &mut App) {
+        self.check_tray(true, cx);
+        if !self.tray_available {
+            self.open_main(cx);
+            return;
+        }
+        if let Some((w, _)) = &self.main {
+            let _ = w.update(cx, |_, w, _| platform::hide(w));
+        }
+        self.main_visible = false;
+    }
+    fn begin_quit(&mut self, cx: &mut App) {
+        if self.quitting {
+            return;
+        }
+        self.quitting = true;
+        self.pending_open.take_ready(false, false, true);
+        self.hide_floating(cx);
+        self.close_reminder_rows(cx);
+        self.save_ui_if_ready(true);
+        self.preview = None;
+        self.close_overlays(cx);
+        let effects = self.engine.shutdown(platform::clock());
+        self.apply(effects, cx);
+        self.persist_pause();
+        self.tray.take();
     }
     fn close_overlays(&mut self, cx: &mut App) {
         for (w, _) in self.overlays.drain(..) {
@@ -189,6 +344,7 @@ impl Controller {
                     is_minimizable: false,
                     is_movable: false,
                     focus: false,
+                    show: false,
                     ..Default::default()
                 },
                 cx,
@@ -201,6 +357,7 @@ impl Controller {
             self.overlays.push((handle, view));
             handle.update(cx, |_, w, _| {
                 platform::prepare_overlay(w)?;
+                platform::show_floating(w);
                 if platform::contains_pointer(w) {
                     pointer_window = Some(handle);
                 }
@@ -294,6 +451,14 @@ impl Controller {
         });
     }
     fn event(&mut self, event: Event, cx: &mut App) {
+        if self.quitting
+            && matches!(
+                &event,
+                Event::Command(_) | Event::Notice(_) | Event::Displays
+            )
+        {
+            return;
+        }
         let now = platform::clock();
         let event = match event {
             Event::Command(Command::CloseWindow)
@@ -334,6 +499,11 @@ impl Controller {
         let clock_transition = old_clock.locked != now.locked
             || continuous_elapsed > awake_elapsed.saturating_add(2000);
         let diagnostics = std::env::var_os("GULU_DIAGNOSTICS").is_some();
+        let trace_resident = diagnostics
+            && matches!(
+                &event,
+                Event::Command(_) | Event::Notice(_) | Event::Saved(_) | Event::MainErrorDismissed
+            );
         if diagnostics {
             if let Event::Command(command) = &event {
                 eprintln!("{} command={command:?}", now.wall.to_rfc3339());
@@ -382,20 +552,8 @@ impl Controller {
                 }
             }
             Event::Command(c) => match c {
-                Command::OpenHome | Command::OpenSettings => {
-                    self.open_main(cx);
-                    let page = if matches!(c, Command::OpenSettings) {
-                        1
-                    } else {
-                        0
-                    };
-                    if let Some((handle, view)) = &self.main {
-                        let view = view.clone();
-                        let _ = handle.update(cx, |_, w, cx| {
-                            view.update(cx, |v, cx| v.navigate(page, w, cx))
-                        });
-                    }
-                }
+                Command::OpenHome => self.request_main(OpenTarget::Home, cx),
+                Command::OpenSettings => self.request_main(OpenTarget::Settings, cx),
                 Command::SetFloating(enabled) => self.set_floating(enabled, cx),
                 Command::ToggleFloating => {
                     self.set_floating(!self.preferences.current.floating_enabled, cx)
@@ -412,17 +570,8 @@ impl Controller {
                 Command::CloseFloatingMenu => self.close_floating_menu(cx),
                 Command::CloseWindow => unreachable!("close resolved before dispatch"),
                 Command::Open => self.open_main(cx),
-                Command::Hide => {
-                    if !self.close_explained {
-                        self.close_explained = true;
-                        self.snapshot.borrow_mut().message="小站会继续在菜单栏 / 系统托盘运行。需要结束时请选择「退出咕嘟扭扭」。再次关闭即可隐藏。".into();
-                    } else if self.tray.is_some() {
-                        self.main_visible = false;
-                        if let Some((w, _)) = &self.main {
-                            let _ = w.update(cx, |_, w, _| platform::hide(w));
-                        }
-                    }
-                }
+                Command::Hide => self.hide_main(cx),
+                Command::RetryTray => self.retry_tray(cx),
                 Command::PauseMinutes(m) => {
                     let effects = self
                         .engine
@@ -476,15 +625,7 @@ impl Controller {
                     }
                 }
                 Command::Quit => {
-                    self.quitting = true;
-                    self.hide_floating(cx);
-                    self.close_reminder_rows(cx);
-                    self.save_ui_if_ready(true);
-                    self.preview = None;
-                    self.close_overlays(cx);
-                    let effects = self.engine.shutdown(now);
-                    self.apply(effects, cx);
-                    self.persist_pause();
+                    self.begin_quit(cx);
                     let _ = self.jobs.send(Job::Flush);
                     let tx = self.tx.clone();
                     cx.spawn(async move |cx| {
@@ -548,6 +689,7 @@ impl Controller {
                 }
             },
             Event::Saved(result) => {
+                let was_onboarded = self.engine.settings.onboarded;
                 self.snapshot.borrow_mut().saving = false;
                 match result {
                     Ok(settings) => match self.engine.replace_settings(settings, now) {
@@ -557,6 +699,9 @@ impl Controller {
                                 "设置已保存。新的规则已生效。".into();
                             if let Some((_, v)) = &self.main {
                                 v.update(cx, |v, cx| v.saved(cx));
+                            }
+                            if !was_onboarded && self.engine.settings.onboarded && !self.quitting {
+                                self.hide_main(cx);
                             }
                         }
                         Err(e) => self.snapshot.borrow_mut().message = e.to_string(),
@@ -612,6 +757,12 @@ impl Controller {
                 self.apply(effects, cx);
                 self.snapshot.borrow_mut().message = e;
             }
+            Event::MainErrorDismissed => {
+                self.main_error_pending = false;
+                if !self.tray_available && !self.quitting {
+                    let _ = self.tx.try_send(Event::Command(Command::Quit));
+                }
+            }
             Event::Flushed => {
                 if self.quitting {
                     cx.quit();
@@ -619,10 +770,7 @@ impl Controller {
                 }
             }
             Event::Notice(ids) => {
-                self.open_main(cx);
-                if let Some((_, v)) = &self.main {
-                    v.update(cx, |v, cx| v.saved(cx));
-                }
+                self.request_main(OpenTarget::Home, cx);
                 if !self
                     .engine
                     .pending()
@@ -675,7 +823,12 @@ impl Controller {
             let _ = std::fs::remove_file(&self.activation);
             self.open_main(cx);
         }
+        self.check_tray(false, cx);
+        self.open_pending_main(cx);
         self.refresh(cx);
+        if trace_resident {
+            self.log_resident_state("event", cx);
+        }
         if diagnostics && clock_transition {
             eprintln!(
                 "{} clock_reconciled remaining_after_ms={:?} session_deadline_ms={:?} overlays={}",
@@ -775,11 +928,16 @@ impl Controller {
                 }
             };
         }
+        let tray_status = if !s.storage_error.is_empty() || !s.ui_error.is_empty() || s.recovery {
+            "需要处理 · 请打开小站"
+        } else {
+            &s.status
+        };
         if let Some(tray) = &self.tray
-            && self.tray_status != s.status
+            && self.tray_status != tray_status
         {
-            tray.status.set_text(&s.status);
-            self.tray_status = s.status.clone();
+            tray.status.set_text(tray_status);
+            self.tray_status = tray_status.to_string();
         }
         drop(s);
         self.sync_floating(cx);
@@ -794,22 +952,25 @@ impl Controller {
         }
     }
     fn wait_ms(&self, cx: &App) -> u64 {
+        if self.quitting {
+            return 1000;
+        }
+        let mut wait = self.engine.next_wake_ms().min(
+            self.tray_check_due
+                .saturating_duration_since(std::time::Instant::now())
+                .as_millis()
+                .max(1) as u64,
+        );
         if !self.preferences.saving()
             && let Some(due) = self.position_due
         {
-            return self
-                .engine
-                .next_wake_ms()
-                .min(
-                    due.saturating_duration_since(std::time::Instant::now())
-                        .as_millis()
-                        .max(1) as u64,
-                )
-                .min(1000);
+            wait = wait.min(
+                due.saturating_duration_since(std::time::Instant::now())
+                    .as_millis()
+                    .max(1) as u64,
+            );
         }
-        if self.quitting {
-            1000
-        } else if !self.overlays.is_empty()
+        if !self.overlays.is_empty()
             || (self.floating_visible && self.snapshot.borrow().floating.ticking)
             || (self.main_visible
                 && self.engine.running()
@@ -818,9 +979,9 @@ impl Controller {
                     .as_ref()
                     .is_some_and(|(_, v)| v.read(cx).shows_countdown()))
         {
-            self.engine.next_wake_ms().min(1000)
+            wait.min(1000)
         } else {
-            self.engine.next_wake_ms().min(30_000)
+            wait.min(30_000)
         }
     }
 }
@@ -890,10 +1051,13 @@ fn run() -> anyhow::Result<()> {
         saving: false,
         break_active: false,
         storage_error: String::new(),
+        tray_error: String::new(),
     }));
     let app = application()
         .with_assets(artwork::Artwork)
         .with_quit_mode(QuitMode::Explicit);
+    #[cfg(target_os = "macos")]
+    let app = app.with_windowing(WindowingRequest::Headless);
     let reopen = tx.clone();
     app.on_reopen(move |_| {
         let _ = reopen.try_send(Event::Command(Command::Open));
@@ -979,8 +1143,9 @@ fn run() -> anyhow::Result<()> {
             let _ = displays.try_send(Event::Displays);
         })
         .detach();
-        let tray = tray::Tray::new(tx.clone())
-            .map_err(|e| snapshot.borrow_mut().message = format!("托盘不可用，请保留小站窗口：{e}"))
+        tray::init(tx.clone());
+        let tray = tray::Tray::new()
+            .map_err(|e| eprintln!("托盘创建失败：{e}"))
             .ok();
         let mut c = Controller {
             preferences: preferences::Preferences::new(loaded.ui),
@@ -1000,40 +1165,40 @@ fn run() -> anyhow::Result<()> {
             preview: None,
             tray,
             quitting: false,
-            close_explained: false,
+            tray_available: false,
+            tray_check_due: std::time::Instant::now(),
+            pending_open: resident::PendingOpen::default(),
+            main_error_pending: false,
             _lock: lock,
             activation,
             last_day: Local::now().date_naive(),
             _watcher: watcher,
-            main_visible: true,
+            main_visible: false,
             tray_status: String::new(),
             previous_focus: None,
             notice_tags: Default::default(),
         };
+        c.check_tray(true, cx);
         c.refresh(cx);
-        if !c.floating_visible
-            || c.tray.is_none()
-            || !c.snapshot.borrow().storage_error.is_empty()
-            || !c.snapshot.borrow().ui_error.is_empty()
-        {
+        let needs_attention = {
+            let s = c.snapshot.borrow();
+            s.recovery || !s.storage_error.is_empty() || !s.ui_error.is_empty()
+        };
+        if resident::needs_main_on_start(
+            c.engine.settings.onboarded,
+            c.tray_available,
+            needs_attention,
+        ) {
             c.open_main(cx);
         }
+        c.log_resident_state("startup", cx);
         let c = Rc::new(RefCell::new(c));
         let quitting = c.clone();
         cx.on_app_quit(move |cx| {
             let (done, rx) = async_channel::bounded(1);
             {
                 let mut c = quitting.borrow_mut();
-                c.hide_floating(cx);
-                c.close_reminder_rows(cx);
-                c.close_overlays(cx);
-                if !c.quitting {
-                    c.quitting = true;
-                    let effects = c.engine.shutdown(platform::clock());
-                    c.apply(effects, cx);
-                    c.persist_pause();
-                }
-                c.save_ui_if_ready(true);
+                c.begin_quit(cx);
                 let _ = c.jobs.send(Job::Barrier(done));
             }
             let timer = cx.background_executor().timer(Duration::from_secs(2));

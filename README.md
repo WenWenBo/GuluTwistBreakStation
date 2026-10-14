@@ -2,11 +2,11 @@
 
 **咕嘟一口，扭扭两下，放风三分钟。**
 
-离线桌面提醒工具：喝水、活动颈肩、按需如厕与站立。Rust + GPUI Kit，默认多屏强制休息，随时可紧急退出，也可切换轻提醒。
+离线桌面提醒工具：喝水、活动颈肩、按需如厕、站立与护眼。Rust + GPUI Kit，护眼默认全屏休息，其余默认轻提醒；每项可独立调整。
 
 ## 本机运行
 
-当前个人预览版为 0.1.0（Mac build 4，紧凑胶囊功能分支），目标为 macOS 15+（Apple Silicon / Intel）与 Windows 10 x64。实际验证范围见[验证报告](docs/validation/LOCAL_REPORT.md)，源码支持不等于目标机器实测通过。
+当前个人预览版为 0.1.0（Mac build 7，菜单栏／托盘常驻），目标为 macOS 15+（Apple Silicon / Intel）与 Windows 10／11 x64。实际验证范围见[常驻模式报告](docs/validation/RESIDENT_APP_REPORT.md)，源码支持不等于目标机器实测通过。
 
 macOS 打包后运行，系统通知需要真实 `.app`：
 
@@ -15,7 +15,7 @@ scripts/package-macos.sh aarch64-apple-darwin
 open 'dist/aarch64-apple-darwin/GuluTwist Break Station.app'
 ```
 
-Mac ZIP 文件名包含构建号（例如 `GuluTwist-0.1.0-build4-aarch64-apple-darwin.zip`），旧无构建号下载路径也同步为最新包。build 3 修复替换应用后 Dock 仍显示旧图标的问题，见 [修复记录](docs/validation/DOCK_ICON_FIX.md)。
+Mac ZIP 文件名包含构建号（例如 `GuluTwist-0.1.0-build7-aarch64-apple-darwin.zip`），旧无构建号下载路径也同步为最新包。build 3 修复替换应用后 Dock 仍显示旧图标的问题，见 [修复记录](docs/validation/DOCK_ICON_FIX.md)。
 
 Intel Mac 包：
 
@@ -55,11 +55,19 @@ GULU_DATA_DIR="$PWD/dist/manual-test" GULU_DIAGNOSTICS=1 \
   2>dist/manual-test.log
 ```
 
-诊断默认关闭，只在标准错误输出应用命令、会话事件、遮罩数量，以及锁屏/唤醒前后的时钟与剩余间隔，不采集键鼠、截图或其它应用内容。不要把测试数据库当作正式数据交付。
+诊断默认关闭，只在标准错误输出应用命令、会话事件、遮罩数量，窗口可见性、常驻模式，以及锁屏/唤醒前后的时钟与剩余间隔，不采集键鼠、截图或其它应用内容。不要把测试数据库当作正式数据交付。
 
 ## 视觉更新
 
-当前采用原创「小咕」圆润水团图标和暖白绿色界面。默认四卡首页、可折叠侧栏、分秒设置、未保存保护及多屏休息遮罩已更新。实际结果见 [视觉回归报告](docs/validation/UI_REFRESH_REPORT.md)，图标母版与重建步骤见 [资源说明](assets/icons/README.md)。
+当前采用原创「小咕」圆润水团图标和暖白绿色界面。五项提醒首页、可折叠侧栏、分秒设置、未保存保护及多屏休息遮罩已更新。实际结果见 [视觉回归报告](docs/validation/UI_REFRESH_REPORT.md)，图标母版与重建步骤见 [资源说明](assets/icons/README.md)。
+
+## 菜单栏／托盘常驻
+
+Mac 正常运行只在菜单栏显示入口，打开设置也不占 Dock 或 ⌘Tab。Windows 在主窗口隐藏时只保留托盘；主窗口打开／最小化时保留任务栏与 Alt+Tab，托盘左键打开小站、右键打开菜单。图标可能位于系统的展开区。
+
+首次引导保存成功后收起主窗口；之后冷启动不弹主窗口，胶囊按已有开关显示。关闭主窗口一次即隐藏，草稿仍保留；再次启动同一数据目录的应用可找回窗口。休息／锁屏时请求打开会延后；显式退出会清理所有窗口与图标。图标不可用时保留主窗口，提供重试与退出入口，Mac 临时恢复 Dock。
+
+独立的 `.github/workflows/verify.yml` 在 main 的 PR 或手动触发时检查三平台构建，不发布 Release。本轮不改变 release 分支。完整方案与手工场景见[实现计划](docs/implementation/RESIDENT_APP_PLAN.md)和[验证手册](docs/validation/RESIDENT_APP_MANUAL_TESTS.md)。
 
 ## 桌面胶囊
 

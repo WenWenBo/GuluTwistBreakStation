@@ -56,8 +56,38 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) ->
     }
     unsafe { DefWindowProcW(hwnd, msg, w, l) }
 }
+// Read before creating any windows, then refresh after session notifications are registered.
+fn refresh_lock_state() {
+    unsafe {
+        let mut data = std::ptr::null_mut();
+        let mut len = 0;
+        if WTSQuerySessionInformationW(
+            std::ptr::null_mut(),
+            WTS_CURRENT_SESSION,
+            WTSSessionInfoEx,
+            &mut data,
+            &mut len,
+        ) != 0
+        {
+            if len as usize >= std::mem::size_of::<WTSINFOEXW>() {
+                let info = &*(data as *const WTSINFOEXW);
+                if info.Level == 1 {
+                    LOCKED.store(
+                        info.Data.WTSInfoExLevel1.SessionFlags as u32 == WTS_SESSIONSTATE_LOCK,
+                        Ordering::Relaxed,
+                    );
+                }
+            }
+            WTSFreeMemory(data as _);
+        }
+    }
+    if let Some(tx) = SENDER.get() {
+        let _ = tx.try_send(Event::Tick);
+    }
+}
 pub fn init(sender: Sender<Event>) {
     let _ = SENDER.set(sender);
+    refresh_lock_state();
     std::thread::spawn(|| unsafe {
         let class: Vec<u16> = "GuluTwistSessionEvents\0".encode_utf16().collect();
         let instance = GetModuleHandleW(std::ptr::null());
@@ -97,27 +127,7 @@ pub fn init(sender: Sender<Event>) {
                 ));
             }
         }
-        let mut data = std::ptr::null_mut();
-        let mut len = 0;
-        if WTSQuerySessionInformationW(
-            std::ptr::null_mut(),
-            WTS_CURRENT_SESSION,
-            WTSSessionInfoEx,
-            &mut data,
-            &mut len,
-        ) != 0
-        {
-            if len as usize >= std::mem::size_of::<WTSINFOEXW>() {
-                let info = &*(data as *const WTSINFOEXW);
-                if info.Level == 1 {
-                    LOCKED.store(
-                        info.Data.WTSInfoExLevel1.SessionFlags as u32 == WTS_SESSIONSTATE_LOCK,
-                        Ordering::Relaxed,
-                    );
-                }
-            }
-            WTSFreeMemory(data as _);
-        }
+        refresh_lock_state();
         let mut message: MSG = std::mem::zeroed();
         while GetMessageW(&mut message, std::ptr::null_mut(), 0, 0) > 0 {
             TranslateMessage(&message);
@@ -128,6 +138,7 @@ pub fn init(sender: Sender<Event>) {
     });
 }
 pub fn prepare_overlay(window: &Window) -> anyhow::Result<()> {
+    prepare_tool_window(window)?;
     if let RawWindowHandle::Win32(h) = HasWindowHandle::window_handle(window)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?
         .as_raw()
@@ -140,7 +151,7 @@ pub fn prepare_overlay(window: &Window) -> anyhow::Result<()> {
                 0,
                 0,
                 0,
-                SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED,
             ) == 0
             {
                 anyhow::bail!("无法置顶遮罩");
@@ -190,10 +201,14 @@ pub fn contains_pointer(window: &Window) -> bool {
     false
 }
 pub fn startup_error(message: &str) {
-    let title: Vec<u16> = "咕嘟扭扭暂时无法启动\0".encode_utf16().collect();
-    let text: Vec<u16> = format!("提醒没有启动，请检查数据目录是否可写。\n{message}\0")
-        .encode_utf16()
-        .collect();
+    show_error(
+        "咕嘟扭扭暂时无法启动",
+        &format!("提醒没有启动，请检查数据目录是否可写。\n{message}"),
+    );
+}
+pub fn show_error(title: &str, message: &str) {
+    let title: Vec<u16> = title.encode_utf16().chain(Some(0)).collect();
+    let text: Vec<u16> = message.encode_utf16().chain(Some(0)).collect();
     unsafe {
         MessageBoxW(
             std::ptr::null_mut(),
@@ -202,6 +217,21 @@ pub fn startup_error(message: &str) {
             MB_OK | MB_ICONERROR,
         );
     }
+}
+pub fn show_main(window: &Window) -> anyhow::Result<()> {
+    let hwnd = floating_hwnd(window)?;
+    unsafe {
+        ShowWindow(
+            hwnd,
+            if IsIconic(hwnd) != 0 {
+                SW_RESTORE
+            } else {
+                SW_SHOW
+            },
+        );
+        SetForegroundWindow(hwnd);
+    }
+    Ok(())
 }
 pub fn is_visible(window: &Window) -> bool {
     if let Ok(h) = HasWindowHandle::window_handle(window) {
@@ -254,7 +284,24 @@ fn floating_hwnd(window: &Window) -> anyhow::Result<HWND> {
         anyhow::bail!("窗口类型不受支持")
     }
 }
+fn prepare_tool_window(window: &Window) -> anyhow::Result<()> {
+    let hwnd = floating_hwnd(window)?;
+    unsafe {
+        let ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
+        SetLastError(0);
+        let previous = SetWindowLongPtrW(
+            hwnd,
+            GWL_EXSTYLE,
+            ((ex & !WS_EX_APPWINDOW) | WS_EX_TOOLWINDOW) as isize,
+        );
+        if previous == 0 && GetLastError() != 0 {
+            return Err(std::io::Error::last_os_error().into());
+        }
+    }
+    Ok(())
+}
 pub fn prepare_floating(window: &Window, _: bool) -> anyhow::Result<()> {
+    prepare_tool_window(window)?;
     let hwnd = floating_hwnd(window)?;
     unsafe {
         let style = GetWindowLongPtrW(hwnd, GWL_STYLE) as u32;
@@ -263,12 +310,6 @@ pub fn prepare_floating(window: &Window, _: bool) -> anyhow::Result<()> {
             GWL_STYLE,
             ((style & !(WS_CAPTION | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX)) | WS_POPUP)
                 as isize,
-        );
-        let ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
-        SetWindowLongPtrW(
-            hwnd,
-            GWL_EXSTYLE,
-            ((ex & !WS_EX_APPWINDOW) | WS_EX_TOOLWINDOW) as isize,
         );
         if SetWindowPos(
             hwnd,
