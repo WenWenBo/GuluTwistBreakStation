@@ -664,6 +664,7 @@ impl MainView {
                                             .flex()
                                             .items_center()
                                             .gap_2()
+                                            .child(caption("休息").flex_shrink_0())
                                             .child(
                                                 div().w(px(62.)).child(
                                                     Input::new(&self.minutes[i])
@@ -1341,7 +1342,10 @@ impl Render for Overlay {
         div()
             .id("rest-overlay")
             .role(Role::Group)
-            .aria_label(format!("{}。休息中，按 Esc 可紧急退出。", self.title))
+            .aria_label(format!(
+                "{}。休息中，可点击底部的“紧急退出本次休息”结束。",
+                self.title
+            ))
             .w(window.viewport_size().width)
             .h(window.viewport_size().height)
             .overflow_hidden()
@@ -1351,11 +1355,6 @@ impl Render for Overlay {
             .bg(rgb(REST))
             .text_color(rgb(INK))
             .track_focus(&self.focus)
-            .on_key_down(cx.listener(|this, e: &KeyDownEvent, _, _| {
-                if e.keystroke.key == "escape" {
-                    let _ = this.tx.try_send(Event::Command(Command::Interrupt));
-                }
-            }))
             .child(
                 div()
                     .id("rest-content")
@@ -1416,21 +1415,35 @@ impl Render for Overlay {
                     .flex_shrink_0()
                     .v_flex()
                     .items_center()
-                    .gap_2()
                     .pt_3()
                     .pb_2()
                     .child(
-                        button(
-                            "emergency",
-                            "紧急退出本次休息",
-                            Command::Interrupt,
-                            &self.tx,
-                        )
-                        .primary()
-                        .h(px(44.))
-                        .px_6(),
-                    )
-                    .child(caption("按 Esc 也可退出")),
+                        div()
+                            .id("emergency")
+                            .role(Role::Button)
+                            .aria_label("紧急退出本次休息")
+                            .cursor_pointer()
+                            .px_2()
+                            .py_1()
+                            .text_size(px(13.))
+                            .line_height(px(20.))
+                            .font_weight(FontWeight::NORMAL)
+                            .text_color(rgb(MUTED))
+                            .underline()
+                            .hover(|d| d.text_color(rgb(INK)))
+                            .on_mouse_move(|_, window, _| {
+                                // GPUI on macOS only updates the cursor for the active window.
+                                // Each display has its own overlay, so activate the hovered one.
+                                if cfg!(target_os = "macos") && !window.is_window_active() {
+                                    window.activate_window();
+                                    window.refresh();
+                                }
+                            })
+                            .on_click(cx.listener(|this, _, _, _| {
+                                let _ = this.tx.try_send(Event::Command(Command::Interrupt));
+                            }))
+                            .child("紧急退出本次休息"),
+                    ),
             )
     }
 }

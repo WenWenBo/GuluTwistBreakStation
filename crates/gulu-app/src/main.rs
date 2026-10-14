@@ -179,7 +179,6 @@ impl Controller {
             let tx = self.tx.clone();
             let t = title.clone();
             let h = hints.clone();
-            let close_tx = tx.clone();
             let (handle, view) = gpui_kit::open_window(
                 WindowOptions {
                     window_bounds: Some(WindowBounds::Windowed(display.bounds())),
@@ -195,10 +194,7 @@ impl Controller {
                 cx,
                 move |w, cx| {
                     w.set_window_title("咕嘟扭扭 · 休息中");
-                    w.on_window_should_close(cx, move |_, _| {
-                        let _ = close_tx.try_send(Event::Command(Command::Interrupt));
-                        false
-                    });
+                    w.on_window_should_close(cx, |_, _| false);
                     cx.new(|cx| ui::Overlay::new(t, h, deadline, tx, w, cx))
                 },
             )?;
@@ -300,6 +296,14 @@ impl Controller {
     fn event(&mut self, event: Event, cx: &mut App) {
         let now = platform::clock();
         let event = match event {
+            Event::Command(Command::CloseWindow)
+                if self
+                    .overlays
+                    .iter()
+                    .any(|(w, _)| Some(*w) == cx.active_window()) =>
+            {
+                Event::Tick
+            }
             Event::Command(Command::CloseWindow) => Event::Command(
                 if self
                     .floating_menu
@@ -318,8 +322,6 @@ impl Controller {
                     .any(|w| Some(*w) == cx.active_window())
                 {
                     Command::OpenHome
-                } else if self.preview.is_some() || self.engine.session.is_some() {
-                    Command::Interrupt
                 } else {
                     Command::Hide
                 },

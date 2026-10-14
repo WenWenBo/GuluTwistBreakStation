@@ -24,7 +24,6 @@ impl Tray {
             ("nextday", "暂停到下一工作日"),
             ("pause", "手动暂停"),
             ("resume", "恢复提醒"),
-            ("interrupt", "紧急退出本次休息"),
             ("quit", "退出咕嘟扭扭"),
         ] {
             menu.append(&MenuItem::with_id(id, title, true, None))?;
@@ -38,7 +37,6 @@ impl Tray {
                 "nextday" => Command::NextDay,
                 "pause" => Command::Pause,
                 "resume" => Command::Resume,
-                "interrupt" => Command::Interrupt,
                 "quit" => Command::Quit,
                 _ => return,
             };

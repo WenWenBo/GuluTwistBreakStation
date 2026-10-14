@@ -90,7 +90,7 @@ impl Default for Settings {
             onboarded: false,
             reminders: std::array::from_fn(|i| {
                 let (interval_minutes, break_seconds) =
-                    [(60, 30), (45, 60), (120, 180), (60, 120), (20, 20)][i];
+                    [(30, 30), (40, 60), (90, 180), (60, 120), (20, 20)][i];
                 ReminderConfig {
                     mode: if i == ReminderKind::EyeCare.index() {
                         ReminderMode::Strong
