@@ -293,10 +293,34 @@ pub fn show_floating(window: &Window) {
         }
     }
 }
+pub fn activate_floating_menu(window: &mut Window) {
+    if let Ok(hwnd) = floating_hwnd(window) {
+        // GPUI activation reapplies the hidden window's original framed placement.
+        unsafe {
+            ShowWindow(hwnd, SW_SHOW);
+            SetForegroundWindow(hwnd);
+            windows_sys::Win32::UI::Input::KeyboardAndMouse::SetFocus(hwnd);
+        }
+    }
+}
+pub fn start_floating_move(window: &Window) -> anyhow::Result<()> {
+    queue_floating_move(floating_hwnd(window)?)
+}
+fn queue_floating_move(hwnd: HWND) -> anyhow::Result<()> {
+    unsafe {
+        windows_sys::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture();
+        // Post instead of Send: the native move loop must start after GPUI releases App.
+        if PostMessageW(hwnd, WM_SYSCOMMAND, (SC_MOVE | HTCAPTION) as WPARAM, 0) == 0 {
+            return Err(std::io::Error::last_os_error().into());
+        }
+    }
+    Ok(())
+}
 pub fn position_floating(
-    window: &Window,
+    window: &mut Window,
     bounds: gpui_kit::Bounds<gpui_kit::Pixels>,
     display: &dyn gpui_kit::PlatformDisplay,
+    cx: &mut gpui_kit::App,
 ) -> anyhow::Result<()> {
     use windows_sys::Win32::Graphics::Gdi::*;
     let hwnd = floating_hwnd(window)?;
@@ -327,6 +351,8 @@ pub fn position_floating(
             anyhow::bail!("无法移动悬浮窗");
         }
     }
+    // WM_SIZE cannot borrow App here; notify observers after the view update ends.
+    window.defer(cx, |window, cx| window.bounds_changed(cx));
     refresh_floating_shape(window);
     Ok(())
 }
@@ -354,6 +380,47 @@ pub fn refresh_floating_shape(window: &Window) {
             if !region.is_null() && SetWindowRgn(hwnd, region, 1) == 0 {
                 DeleteObject(region);
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetCapture, SetCapture};
+
+    #[test]
+    fn floating_move_releases_capture_and_queues_native_move() {
+        unsafe {
+            let class: Vec<u16> = "STATIC\0".encode_utf16().collect();
+            let hwnd = CreateWindowExW(
+                WS_EX_TOOLWINDOW,
+                class.as_ptr(),
+                std::ptr::null(),
+                WS_POPUP,
+                0,
+                0,
+                200,
+                52,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                GetModuleHandleW(std::ptr::null()),
+                std::ptr::null(),
+            );
+            assert!(!hwnd.is_null());
+            SetCapture(hwnd);
+            let captured = GetCapture() == hwnd;
+            let result = queue_floating_move(hwnd);
+            let released = GetCapture().is_null();
+            let mut message: MSG = std::mem::zeroed();
+            let queued = PeekMessageW(&mut message, hwnd, WM_SYSCOMMAND, WM_SYSCOMMAND, PM_REMOVE);
+            DestroyWindow(hwnd);
+
+            assert!(captured);
+            result.unwrap();
+            assert!(released);
+            assert_ne!(queued, 0);
+            assert_eq!(message.wParam, (SC_MOVE | HTCAPTION) as WPARAM);
         }
     }
 }

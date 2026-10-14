@@ -225,6 +225,11 @@ impl Render for FloatingView {
                     })
                 {
                     this.press = None;
+                    #[cfg(target_os = "windows")]
+                    if let Err(error) = platform::start_floating_move(w) {
+                        eprintln!("无法拖动悬浮窗：{error}");
+                    }
+                    #[cfg(not(target_os = "windows"))]
                     w.start_window_move();
                 }
             }))
