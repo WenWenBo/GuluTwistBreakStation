@@ -390,3 +390,35 @@ AT-01 至 AT-20、AT-23 由 T-22 汇总；AT-21 由 T-23 执行；AT-22 由 T-25
 - [ ] Windows 10／Intel Mac 真机及专项矩阵，由用户按手册执行；不阻塞已授权本机交付，不能据交叉构建判定完成。
 
 结果与已知限制统一见 `docs/validation/EYE_CARE_REMINDERS_REPORT.md`；原里程碑终验要求继续保留。
+
+
+## 9. 菜单栏／托盘常驻规划（2026-10-14）
+
+专项计划：[macOS 菜单栏与 Windows 托盘常驻实现计划](docs/implementation/RESIDENT_APP_PLAN.md)。本轮只交付计划，功能实施另行执行。
+
+- [x] 明确用户已接受的两端常驻交互和当前代码基线。
+- [x] 核对 GPUI 激活策略、启动和重开路径、Windows 工具窗口与托盘恢复机制。
+- [x] 完成任务拆分、异常兜底、数据兼容、测试矩阵和发布边界。
+- [x] 检查计划一致性，交付文档；不得据此将功能标为已实现。
+
+专项规划交付时已完成；当时 R-01 至 R-09 功能实施任务均为 pending，随后实施状态见第 10 节。平台范围为 macOS 15+ Apple Silicon／Intel、Windows 10／11 x64，交互矩阵包含 14 项通用、5 项 Mac、6 项 Windows 验收。
+
+规划过程记录：首轮批量输出过大被截断，已改用定向读取；仓库没有 `.github/workflows/release.yml`，现有构建及发布均位于 `.github/workflows/check.yml`，只在推送 `release` 时触发。
+
+补充调查：tray-icon 目录初次按 0.24.0/0.24.1 查找失败，已按 Cargo.lock 定位为 0.24.2 并核对源码。
+
+
+## 10. 菜单栏／托盘常驻实施交付（2026-10-14）
+
+用户已授权“请实施”。代码 `c17a573`、Windows 锁屏初始化修复 `ec685eb` 已在 `codex/bugfix` 提交。
+
+- [x] Mac LSUIElement／Accessory，Windows 主窗与工具窗分工，托盘快捷入口与健康检查。
+- [x] 安静冷启动、引导完成收起、一次关窗隐藏、窗口还原、草稿保护、延迟导航、幂等退出和失败兜底。
+- [x] 56 项测试、fmt／Clippy，真实 Windows 适配与托盘 API 类型检查。
+- [x] Mac arm64／Intel build 6 Release 包、签名、图标、身份／常驻元数据检查。
+- [x] 独立验证 CI、用户指南、PRD／界面／架构同步，报告及完整手工回归步骤。
+- [ ] Mac 原生界面与故障回归：当前桌面锁屏，工具无法驱动，待解锁后按手册执行。
+- [ ] Windows 完整原生构建与 Win 10／11、Intel 真机运行；现有交叉检查不计通过。
+- [ ] 资源对比、8 小时稳定性、Space／多屏／通知／混合 DPI 等专项实际证据。
+
+源码及本机可执行检查已交付；完整平台验收继续待测。没有合并 main／release、推送或发布。实际范围统一见 `docs/validation/RESIDENT_APP_REPORT.md`。
