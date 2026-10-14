@@ -61,6 +61,7 @@ pub enum Event {
     StorageError(String),
     Error(String),
     Flushed,
+    MainErrorDismissed,
     Notice(String),
 }
 pub struct Snapshot {
@@ -103,6 +104,7 @@ struct Controller {
     tray_available: bool,
     tray_check_due: std::time::Instant,
     pending_open: resident::PendingOpen,
+    main_error_pending: bool,
     _lock: std::fs::File,
     activation: PathBuf,
     last_day: chrono::NaiveDate,
@@ -113,16 +115,39 @@ struct Controller {
     notice_tags: std::collections::HashMap<Uuid, String>,
 }
 impl Controller {
+    fn log_resident_state(&self, phase: &str, cx: &mut App) {
+        if std::env::var_os("GULU_DIAGNOSTICS").is_none() {
+            return;
+        }
+        let visible = self.main.as_ref().is_some_and(|(window, _)| {
+            window
+                .update(cx, |_, w, _| platform::is_visible(w))
+                .unwrap_or(false)
+        });
+        eprintln!(
+            "resident_state phase={phase} main_exists={} main_visible={visible} tray_available={} floating_visible={} overlays={} quitting={}",
+            self.main.is_some(),
+            self.tray_available,
+            self.floating_visible,
+            self.overlays.len(),
+            self.quitting,
+        );
+        #[cfg(target_os = "macos")]
+        platform::log_resident_policy();
+    }
     fn open_main(&mut self, cx: &mut App) {
         self.request_main(OpenTarget::Restore, cx);
     }
     fn request_main(&mut self, target: OpenTarget, cx: &mut App) {
-        if !self.quitting {
+        if !self.quitting && !self.main_error_pending {
             self.pending_open.request(target);
             self.open_pending_main(cx);
         }
     }
     fn open_pending_main(&mut self, cx: &mut App) {
+        if self.main_error_pending {
+            return;
+        }
         let Some(target) = self.pending_open.take_ready(
             platform::clock().locked,
             self.preview.is_some() || self.engine.session.is_some(),
@@ -135,11 +160,15 @@ impl Controller {
             let message = format!("打开小站失败：{error}");
             self.snapshot.borrow_mut().message = message.clone();
             eprintln!("{message}");
-            platform::show_error("咕嘟扭扭无法打开窗口", &message);
-            if !self.tray_available {
-                // Dispatch after startup installs the persistence/quit hooks.
-                let _ = self.tx.try_send(Event::Command(Command::Quit));
-            }
+            self.main_error_pending = true;
+            let tx = self.tx.clone();
+            // Native modal dialogs run a nested event loop. Present outside an App or
+            // Controller borrow so GPUI callbacks can safely re-enter the application.
+            cx.spawn(async move |_| {
+                platform::show_error("咕嘟扭扭无法打开窗口", &message);
+                let _ = tx.try_send(Event::MainErrorDismissed);
+            })
+            .detach();
             return;
         }
         let page = match target {
@@ -470,6 +499,11 @@ impl Controller {
         let clock_transition = old_clock.locked != now.locked
             || continuous_elapsed > awake_elapsed.saturating_add(2000);
         let diagnostics = std::env::var_os("GULU_DIAGNOSTICS").is_some();
+        let trace_resident = diagnostics
+            && matches!(
+                &event,
+                Event::Command(_) | Event::Notice(_) | Event::Saved(_) | Event::MainErrorDismissed
+            );
         if diagnostics {
             if let Event::Command(command) = &event {
                 eprintln!("{} command={command:?}", now.wall.to_rfc3339());
@@ -723,6 +757,12 @@ impl Controller {
                 self.apply(effects, cx);
                 self.snapshot.borrow_mut().message = e;
             }
+            Event::MainErrorDismissed => {
+                self.main_error_pending = false;
+                if !self.tray_available && !self.quitting {
+                    let _ = self.tx.try_send(Event::Command(Command::Quit));
+                }
+            }
             Event::Flushed => {
                 if self.quitting {
                     cx.quit();
@@ -786,6 +826,9 @@ impl Controller {
         self.check_tray(false, cx);
         self.open_pending_main(cx);
         self.refresh(cx);
+        if trace_resident {
+            self.log_resident_state("event", cx);
+        }
         if diagnostics && clock_transition {
             eprintln!(
                 "{} clock_reconciled remaining_after_ms={:?} session_deadline_ms={:?} overlays={}",
@@ -1125,6 +1168,7 @@ fn run() -> anyhow::Result<()> {
             tray_available: false,
             tray_check_due: std::time::Instant::now(),
             pending_open: resident::PendingOpen::default(),
+            main_error_pending: false,
             _lock: lock,
             activation,
             last_day: Local::now().date_naive(),
@@ -1147,6 +1191,7 @@ fn run() -> anyhow::Result<()> {
         ) {
             c.open_main(cx);
         }
+        c.log_resident_state("startup", cx);
         let c = Rc::new(RefCell::new(c));
         let quitting = c.clone();
         cx.on_app_quit(move |cx| {

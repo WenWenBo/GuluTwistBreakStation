@@ -99,3 +99,11 @@
 - 适配检查原有 GPUI 桩缺少已有悬浮代码使用的几何／显示器类型，导致首轮失败；补齐并加入真实 tray.rs 后，最终 --locked 检查通过。这仍非 Windows 应用构建。
 - 最终 56 项测试、fmt、Clippy 通过，Mac arm64／Intel build 6 构建验签及元数据检查通过；既有 block 0.1.6 future-incompat 提示保留。
 - CUA 实际检查返回 Mac 锁屏无法解锁；本轮原生 UI、失败注入、Windows／Intel 真机和性能／8 小时检查均未执行，详见专项报告。没有以隐藏图标宣称资源下降。
+
+## 2026-10-14 · 原生验证新发现
+
+- Mac build 6 的双入口失败路径真实崩溃，堆栈为 NSAlert.runModal → Cocoa 嵌套循环 → keyboard layout callback → GPUI App.borrow_mut。不能在持有 App／Controller 可变借用时运行同步原生模态循环。
+- `App::spawn` 将任务排入主线程执行器，在无 App 借用的 future 中显示错误提示，确认后发送类型化事件。build 7 的组合失败和单窗口失败均已原生复验。
+- Accessory 下主窗口可编辑、最小化还原与隐藏重开保留草稿；失败兜底实际 policy=Regular，重试成功后 policy=Accessory，主窗保留。
+- CUA 的隐藏应用观察会附带系统 Reopen；退出后观察还可能重新启动默认数据实例。后台状态必须依赖诊断日志／进程确认，退出后避免再次访问该应用。
+- 三屏遮罩的创建／撤销有日志证据；不把单屏截图、交叉编译或平台 API 值当成全部屏幕视觉／外机通过。详细范围以 RESIDENT_APP_REPORT 为准。

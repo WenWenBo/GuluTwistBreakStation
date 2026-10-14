@@ -192,6 +192,14 @@ pub fn show_main(window: &Window) -> anyhow::Result<()> {
 pub fn is_visible(window: &Window) -> bool {
     ns_window(window).is_ok_and(|w| w.isVisible() && !w.isMiniaturized())
 }
+pub fn log_resident_policy() {
+    if let Some(mtm) = MainThreadMarker::new() {
+        eprintln!(
+            "resident_activation_policy={:?}",
+            NSApplication::sharedApplication(mtm).activationPolicy()
+        );
+    }
+}
 
 pub fn prepare_floating(window: &Window, menu: bool) -> anyhow::Result<()> {
     let win = ns_window(window)?;

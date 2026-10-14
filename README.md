@@ -6,7 +6,7 @@
 
 ## 本机运行
 
-当前个人预览版为 0.1.0（Mac build 6，菜单栏／托盘常驻），目标为 macOS 15+（Apple Silicon / Intel）与 Windows 10／11 x64。实际验证范围见[常驻模式报告](docs/validation/RESIDENT_APP_REPORT.md)，源码支持不等于目标机器实测通过。
+当前个人预览版为 0.1.0（Mac build 7，菜单栏／托盘常驻），目标为 macOS 15+（Apple Silicon / Intel）与 Windows 10／11 x64。实际验证范围见[常驻模式报告](docs/validation/RESIDENT_APP_REPORT.md)，源码支持不等于目标机器实测通过。
 
 macOS 打包后运行，系统通知需要真实 `.app`：
 
@@ -15,7 +15,7 @@ scripts/package-macos.sh aarch64-apple-darwin
 open 'dist/aarch64-apple-darwin/GuluTwist Break Station.app'
 ```
 
-Mac ZIP 文件名包含构建号（例如 `GuluTwist-0.1.0-build6-aarch64-apple-darwin.zip`），旧无构建号下载路径也同步为最新包。build 3 修复替换应用后 Dock 仍显示旧图标的问题，见 [修复记录](docs/validation/DOCK_ICON_FIX.md)。
+Mac ZIP 文件名包含构建号（例如 `GuluTwist-0.1.0-build7-aarch64-apple-darwin.zip`），旧无构建号下载路径也同步为最新包。build 3 修复替换应用后 Dock 仍显示旧图标的问题，见 [修复记录](docs/validation/DOCK_ICON_FIX.md)。
 
 Intel Mac 包：
 
@@ -55,7 +55,7 @@ GULU_DATA_DIR="$PWD/dist/manual-test" GULU_DIAGNOSTICS=1 \
   2>dist/manual-test.log
 ```
 
-诊断默认关闭，只在标准错误输出应用命令、会话事件、遮罩数量，以及锁屏/唤醒前后的时钟与剩余间隔，不采集键鼠、截图或其它应用内容。不要把测试数据库当作正式数据交付。
+诊断默认关闭，只在标准错误输出应用命令、会话事件、遮罩数量，窗口可见性、常驻模式，以及锁屏/唤醒前后的时钟与剩余间隔，不采集键鼠、截图或其它应用内容。不要把测试数据库当作正式数据交付。
 
 ## 视觉更新
 

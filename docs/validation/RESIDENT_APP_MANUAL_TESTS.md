@@ -1,6 +1,6 @@
 # 菜单栏／托盘常驻手工回归
 
-日期：2026-10-14。目标版本 0.1.0，Mac build 6。当前实测范围与包校验和见 [本轮报告](RESIDENT_APP_REPORT.md)。本文是待执行步骤，不代表已通过；完整编号定义见 [实现计划第 10 节](../implementation/RESIDENT_APP_PLAN.md)。
+日期：2026-10-14。目标版本 0.1.0，Mac build 7。当前实测范围与包校验和见 [本轮报告](RESIDENT_APP_REPORT.md)。本文是回归操作手册，不代表所有步骤已通过；2026-10-14 解锁后已补验的子项见报告；完整编号定义见 [实现计划第 10 节](../implementation/RESIDENT_APP_PLAN.md)。
 
 ## 1. 使用独立数据启动
 

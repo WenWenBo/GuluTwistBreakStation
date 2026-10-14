@@ -241,10 +241,10 @@ tray-icon 0.24.2 已监听 TaskbarCreated，Explorer 重启后应由库重新注
 
 | 任务 | 当前结果 |
 | --- | --- |
-| R-01 | 框架／托盘源码核实及适配类型检查完成；Mac 当前锁屏，Windows 无原生环境，小范围真实运行待测 |
-| R-02～R-06 | 代码已完成；启动／延后导航纯逻辑与原有引擎回归通过，原生窗口与故障恢复交互待测 |
-| R-07 | 56 项测试、fmt、Clippy、Windows 适配／托盘类型检查、Mac 两架构 build 6 打包通过；Windows 完整构建及远程 CI 未执行 |
-| R-08 | 待实测；Mac 桌面锁屏、外机不可用；性能对比和 8 小时稳定性未执行 |
+| R-01 | 框架／托盘源码及适配类型检查完成；Mac Accessory 开窗与故障恢复已实测，Windows 原生探测与恢复待测 |
+| R-02～R-06 | 代码已完成；Mac 窗口隐藏、恢复、草稿、退出及故障恢复已实测，发现并修复原生错误弹窗重入崩溃；平台边界见报告 |
+| R-07 | 56 项测试、fmt、Clippy、Windows 适配／托盘类型检查、Mac 两架构 build 7 打包通过；Windows 完整构建及远程 CI 未执行 |
+| R-08 | Mac arm64 已完成一轮原生交互回归；外机、Dock／任务切换器视觉、Space、通知、性能对比及 8 小时稳定性仍未验收 |
 | R-09 | 文档、验证手册和本地提交已交付；未合并 main／release 或推送发布 |
 
 
@@ -306,7 +306,7 @@ tray-icon 0.24.2 已监听 TaskbarCreated，Explorer 重启后应由库重新注
 
 本轮实施验证不能通过推送 `release` 来触发，因为现有工作流会直接发布 GitHub Release。已新增 `.github/workflows/verify.yml`，支持针对 main 的 pull_request 和 workflow_dispatch，只执行检查、三目标构建及上传验证产物，权限为 contents: read，不包含 publish job。保留现有 release 发布流程独立。
 
-Mac 构建继续使用 `scripts/package-macos.sh`，构建号已从 5 递增至 6，并校验 LSUIElement、签名与包资源。Windows 使用 `scripts/package-windows.ps1`，先完成便携包构建，再在具备 Inno Setup 的原生环境验证安装包。下载／发布及版本策略不因本计划自动执行。
+Mac 构建继续使用 `scripts/package-macos.sh`，常驻功能构建号由 5 递增至 6，本次原生弹窗修复再递增至 7，并校验 LSUIElement、签名与包资源。Windows 使用 `scripts/package-windows.ps1`，先完成便携包构建，再在具备 Inno Setup 的原生环境验证安装包。下载／发布及版本策略不因本计划自动执行。
 
 本轮已交付：
 
@@ -338,4 +338,4 @@ Mac 构建继续使用 `scripts/package-macos.sh`，构建号已从 5 递增至 
 
 本计划依据当前仓库的 `main.rs`、`tray.rs`、`platform/{macos,windows}.rs`、`floating_controller.rs`、`reminder_rows.rs`、`ui.rs`、打包脚本、CI 和原 PRD；同时读取了锁定版本 GPUI 的激活策略／窗口创建路径及 tray-icon Windows 注册实现。本机 PixPin 的包配置确认 LSUIElement 为 true。
 
-规划阶段只核实源码机制，基线 `758483f` 的 53 项测试不能代替新功能结果。实施后已有 56 项测试、适配类型检查和两架构 Mac 包通过；当前桌面锁屏，原生交互与性能未测。最新证据、包校验和及缺失项以 [本轮报告](../validation/RESIDENT_APP_REPORT.md) 为准。
+规划阶段只核实源码机制，基线 `758483f` 的 53 项测试不能代替新功能结果。实施后已有 56 项测试、适配类型检查和两架构 Mac 包通过；解锁后已补验 Mac arm64 主要原生交互与故障注入；外机与性能仍未测。最新证据、包校验和及缺失项以 [本轮报告](../validation/RESIDENT_APP_REPORT.md) 为准。
