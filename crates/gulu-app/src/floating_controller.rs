@@ -89,7 +89,7 @@ impl Controller {
             let bounds = self.floating_bounds(display.as_ref());
             let result = handle.update(cx, |_, w, cx| {
                 if w.bounds() != bounds || w.display(cx).is_none_or(|d| d.id() != display.id()) {
-                    platform::position_floating(w, bounds, display.as_ref())
+                    platform::position_floating(w, bounds, display.as_ref(), cx)
                 } else {
                     Ok(())
                 }
@@ -157,9 +157,9 @@ impl Controller {
                 )?;
                 let view = handle.entity(cx)?;
                 self.floating_window = Some((handle.into(), view));
-                handle.update(cx, |_, w, _| {
+                handle.update(cx, |_, w, cx| {
                     platform::prepare_floating(w, false)?;
-                    platform::position_floating(w, bounds, display.as_ref())
+                    platform::position_floating(w, bounds, display.as_ref(), cx)
                 })??;
                 Ok(())
             })();
@@ -246,10 +246,10 @@ impl Controller {
         match result {
             Ok(handle) => {
                 self.floating_menu = Some(handle.into());
-                let prepared = handle.update(cx, |_, w, _| {
+                let prepared = handle.update(cx, |_, w, cx| {
                     platform::prepare_floating(w, true)?;
-                    platform::position_floating(w, bounds, display.as_ref())?;
-                    w.activate_window();
+                    platform::position_floating(w, bounds, display.as_ref(), cx)?;
+                    platform::activate_floating_menu(w);
                     Ok::<(), anyhow::Error>(())
                 });
                 if let Err(e) = prepared.and_then(|r| r) {

@@ -197,10 +197,14 @@ pub fn show_floating(window: &Window) {
         win.orderFrontRegardless();
     }
 }
+pub fn activate_floating_menu(window: &mut Window) {
+    window.activate_window();
+}
 pub fn position_floating(
     window: &Window,
     bounds: gpui_kit::Bounds<gpui_kit::Pixels>,
     display: &dyn gpui_kit::PlatformDisplay,
+    _: &mut gpui_kit::App,
 ) -> anyhow::Result<()> {
     let win = ns_window(window)?;
     let mtm = MainThreadMarker::new().ok_or_else(|| anyhow::anyhow!("非主线程"))?;

@@ -222,7 +222,7 @@ impl Controller {
                 handle.update(cx, |_, w, cx| {
                     if w.bounds() != bounds || w.display(cx).is_none_or(|d| d.id() != display.id())
                     {
-                        platform::position_floating(w, bounds, display.as_ref())?;
+                        platform::position_floating(w, bounds, display.as_ref(), cx)?;
                     }
                     if is_new {
                         platform::show_floating(w);
