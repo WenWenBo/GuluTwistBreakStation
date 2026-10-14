@@ -2,6 +2,8 @@
 
 调研日期：2026-10-14（北京时间）。最初检查基线：`12d3eca`；文档整理时在 `f0e33eb` 复核更新依赖、平台导出与发布配置，应用版本仍为 `0.1.0`。状态：调研与建议，尚未实施。文档入口见 [OTA 自动更新](../ota/README.md)。
 
+后续需求已收敛，实施范围以 [OTA 需求与设计](../plans/2026-10-14-github-ota-design.md) 为准：Windows x64 与两种 Mac 使用 Velopack + GitHub Releases，全量更新、草稿手动发布；本轮不做灰度、Linux、正式平台签名／公证或额外的更新清单签名验证。本报告保留较广的技术建议供参考，其中签名层等建议不构成本轮交付要求。
+
 ## 结论
 
 **当前项目没有 OTA，但可以保留 Rust + GPUI 技术栈，接入覆盖 Windows、macOS、Linux 的自动更新机制，也可以自建 OTA 平台。推荐优先验证 Velopack 官方 Rust SDK + GitHub Releases 分发，需要自定义灰度时再接自建决策服务。**
