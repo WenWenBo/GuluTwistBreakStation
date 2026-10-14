@@ -1009,7 +1009,7 @@ fn run() -> anyhow::Result<()> {
     let activation = data.join("activate");
     match lock.try_lock_exclusive() {
         Ok(()) => {}
-        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+        Err(error) if error.raw_os_error() == fs2::lock_contended_error().raw_os_error() => {
             std::fs::write(activation, b"open")?;
             return Ok(());
         }
@@ -1233,4 +1233,31 @@ fn run() -> anyhow::Result<()> {
         .detach();
     });
     Ok(())
+}
+
+#[cfg(test)]
+mod instance_tests {
+    use fs2::FileExt;
+    use uuid::Uuid;
+
+    #[test]
+    fn a_second_instance_recognizes_the_native_lock_conflict() {
+        let path = std::env::temp_dir().join(format!("gulu-lock-{}", Uuid::new_v4()));
+        let first = std::fs::OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(&path)
+            .unwrap();
+        first.try_lock_exclusive().unwrap();
+        let second = std::fs::OpenOptions::new().write(true).open(&path).unwrap();
+        let error = second.try_lock_exclusive().unwrap_err();
+        assert_eq!(
+            error.raw_os_error(),
+            fs2::lock_contended_error().raw_os_error()
+        );
+        drop(first);
+        second.try_lock_exclusive().unwrap();
+        drop(second);
+        std::fs::remove_file(path).unwrap();
+    }
 }
