@@ -4,6 +4,8 @@
 
 本轮目标是让现有 Rust + GPUI 应用通过 GitHub Releases 完成日常自动更新。本文是本轮范围与验收依据，收敛此前的 [OTA 调研](../research/OTA_UPDATE_RESEARCH.md) 和 [GitHub 分发方案](../ota/GITHUB_RELEASES.md)；历史调研中更广的建议不自动纳入本轮，[自建灰度平台](../architecture/OTA_PLATFORM_DESIGN.md) 不属于本轮范围。
 
+任务分解、文件改动、技术验证与交付顺序见 [OTA 完整实现计划](../implementation/OTA_IMPLEMENTATION_PLAN.md)。实现计划已编写，代码实现尚未开始。
+
 ## 一、已确认的选择
 
 | 项目 | 用户已确认的要求 |

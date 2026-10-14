@@ -17,6 +17,7 @@
 | 文档 | 回答的问题 |
 | --- | --- |
 | [OTA 需求与设计（已确认）](../plans/2026-10-14-github-ota-design.md) | 本轮具体做什么？更新交互、发布方式、签名范围及验收标准是什么？ |
+| [OTA 完整实现计划](../implementation/OTA_IMPLEMENTATION_PLAN.md) | 按什么顺序实现？改哪些文件？如何验证缓存、受控退出、草稿发布与三目标升级？ |
 | [调研与选型](../research/OTA_UPDATE_RESEARCH.md) | 项目现在有什么？Velopack、self_update、Sparkle、Tauri 哪个合适？ |
 | [更新原理与独立更新程序](UPDATE_MECHANISM.md) | 下载完整包还是差分包？谁替换文件？辅助进程是否属于应用？ |
 | [GitHub Releases 分发](GITHUB_RELEASES.md) | 如何复用现有发布链路？能否只用下载链接？如何与灰度服务配合？ |

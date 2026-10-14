@@ -1,5 +1,7 @@
 # GitHub Actions 自动打包
 
+本页描述当前尚未接入 OTA 的打包流程。已确认的 Velopack 安装包、全量更新包与“自动构建草稿、手动公开”改造见 [OTA 完整实现计划](implementation/OTA_IMPLEMENTATION_PLAN.md)；下文现有自动公开行为将在该计划实施后更新。
+
 工作流配置位于 `.github/workflows/check.yml`。只有 `release` 分支收到 push 时才运行；每次都构建以下三个目标。`main`、功能分支、标签推送和 PR 事件均不触发这个工作流，也没有手动触发入口。
 
 | 下载产物 | 构建机器 | 内容 |

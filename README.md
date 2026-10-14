@@ -86,6 +86,7 @@ Mac 正常运行只在菜单栏显示入口，打开设置也不占 Dock 或 ⌘
 - [其它机器验证步骤](docs/validation/MANUAL_TEST_GUIDE.md)
 - [架构决策](docs/architecture/decisions.md)
 - [OTA 自动更新文档](docs/ota/README.md)（需求已确认：Velopack + GitHub Releases、全量更新、草稿手动发布；尚未实现）
+- [OTA 完整实现计划](docs/implementation/OTA_IMPLEMENTATION_PLAN.md)（13 项任务、文件改动、发布流程与三目标验收）
 - [需求文档](docs/requirements/PRD.md) / [实施追踪](task_plan.md)
 - [紧凑胶囊悬浮窗实现计划](docs/implementation/FLOATING_WIDGET_PLAN.md)（已实现，本机主要交互已验证）
 
