@@ -33,10 +33,10 @@ pub fn clock() -> ClockSample {
     }
 }
 unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LRESULT {
-    if matches!(msg, WM_DISPLAYCHANGE | WM_SETTINGCHANGE) {
-        if let Some(tx) = SENDER.get() {
-            let _ = tx.try_send(Event::Displays);
-        }
+    if matches!(msg, WM_DISPLAYCHANGE | WM_SETTINGCHANGE)
+        && let Some(tx) = SENDER.get()
+    {
+        let _ = tx.try_send(Event::Displays);
     }
     if msg == WM_WTSSESSION_CHANGE {
         if w as u32 == WTS_SESSION_LOCK {
@@ -49,10 +49,10 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) ->
             let _ = tx.try_send(Event::Tick);
         }
     }
-    if msg == WM_POWERBROADCAST {
-        if let Some(tx) = SENDER.get() {
-            let _ = tx.try_send(Event::Tick);
-        }
+    if msg == WM_POWERBROADCAST
+        && let Some(tx) = SENDER.get()
+    {
+        let _ = tx.try_send(Event::Tick);
     }
     unsafe { DefWindowProcW(hwnd, msg, w, l) }
 }
@@ -120,12 +120,12 @@ pub fn init(sender: Sender<Event>) {
             }
             return;
         }
-        if WTSRegisterSessionNotification(hwnd, NOTIFY_FOR_THIS_SESSION) == 0 {
-            if let Some(tx) = SENDER.get() {
-                let _ = tx.try_send(Event::Error(
-                    "无法注册 Windows 会话通知，提醒已暂停。".into(),
-                ));
-            }
+        if WTSRegisterSessionNotification(hwnd, NOTIFY_FOR_THIS_SESSION) == 0
+            && let Some(tx) = SENDER.get()
+        {
+            let _ = tx.try_send(Event::Error(
+                "无法注册 Windows 会话通知，提醒已暂停。".into(),
+            ));
         }
         refresh_lock_state();
         let mut message: MSG = std::mem::zeroed();
@@ -163,11 +163,11 @@ pub fn prepare_overlay(window: &Window) -> anyhow::Result<()> {
     }
 }
 pub fn hide(window: &Window) {
-    if let Ok(h) = HasWindowHandle::window_handle(window) {
-        if let RawWindowHandle::Win32(h) = h.as_raw() {
-            unsafe {
-                ShowWindow(h.hwnd.get() as HWND, SW_HIDE);
-            }
+    if let Ok(h) = HasWindowHandle::window_handle(window)
+        && let RawWindowHandle::Win32(h) = h.as_raw()
+    {
+        unsafe {
+            ShowWindow(h.hwnd.get() as HWND, SW_HIDE);
         }
     }
 }
@@ -187,15 +187,15 @@ pub fn restore_focus(h: FocusTarget) {
     }
 }
 pub fn contains_pointer(window: &Window) -> bool {
-    if let Ok(h) = HasWindowHandle::window_handle(window) {
-        if let RawWindowHandle::Win32(h) = h.as_raw() {
-            unsafe {
-                let mut p: POINT = std::mem::zeroed();
-                let mut r: RECT = std::mem::zeroed();
-                GetCursorPos(&mut p);
-                GetWindowRect(h.hwnd.get() as HWND, &mut r);
-                return p.x >= r.left && p.x < r.right && p.y >= r.top && p.y < r.bottom;
-            }
+    if let Ok(h) = HasWindowHandle::window_handle(window)
+        && let RawWindowHandle::Win32(h) = h.as_raw()
+    {
+        unsafe {
+            let mut p: POINT = std::mem::zeroed();
+            let mut r: RECT = std::mem::zeroed();
+            GetCursorPos(&mut p);
+            GetWindowRect(h.hwnd.get() as HWND, &mut r);
+            return p.x >= r.left && p.x < r.right && p.y >= r.top && p.y < r.bottom;
         }
     }
     false
@@ -234,12 +234,12 @@ pub fn show_main(window: &Window) -> anyhow::Result<()> {
     Ok(())
 }
 pub fn is_visible(window: &Window) -> bool {
-    if let Ok(h) = HasWindowHandle::window_handle(window) {
-        if let RawWindowHandle::Win32(h) = h.as_raw() {
-            return unsafe {
-                IsWindowVisible(h.hwnd.get() as HWND) != 0 && IsIconic(h.hwnd.get() as HWND) == 0
-            };
-        }
+    if let Ok(h) = HasWindowHandle::window_handle(window)
+        && let RawWindowHandle::Win32(h) = h.as_raw()
+    {
+        return unsafe {
+            IsWindowVisible(h.hwnd.get() as HWND) != 0 && IsIconic(h.hwnd.get() as HWND) == 0
+        };
     }
     false
 }
@@ -255,7 +255,7 @@ pub fn set_window_icon(window: &Window) {
                 let size = GetSystemMetrics(metric);
                 let icon = LoadImageW(
                     instance,
-                    1usize as *const u16,
+                    std::ptr::without_provenance(1), // MAKEINTRESOURCEW(1), not a dereferenced pointer.
                     IMAGE_ICON,
                     size,
                     size,

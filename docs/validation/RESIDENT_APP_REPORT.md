@@ -2,6 +2,8 @@
 
 日期：2026-10-14。版本：0.1.0，macOS build 7。分支：`codex/bugfix`。实现提交：`c17a573`；Windows 启动锁屏修复：`ec685eb`。基线：`758483f`。本次解锁后补验发现并修复 Mac 原生错误弹窗崩溃。
 
+后续已在 Windows 11 本机完成原生构建和主要生命周期验证，并修复重复启动的 Windows 文件锁错误。详见 [Windows 补验报告](RESIDENT_APP_WINDOWS_REPORT.md)；本文保留原 Mac 轮次结果，文末 Windows 待测状态是当时范围。
+
 ## 实现结果
 
 - macOS 以 LSUIElement 和 GPUI Accessory 启动，打开设置仍保持该模式；托盘失败临时恢复 Regular 和主窗入口，重试成功恢复 Accessory。
