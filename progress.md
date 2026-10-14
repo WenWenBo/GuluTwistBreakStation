@@ -111,3 +111,9 @@
 - 原生 policy 已验证，但不将其当成 Dock／⌘Tab 全程视觉证据。Windows、Intel 真机、Space／通知、真实睡眠和长稳／性能继续待测。
 - build 7 最终补验：主窗口从未创建、胶囊关闭时真实 5 分钟到期产生独立喝水提醒和 3 屏护眼休息；日志记录紧急退出后遮罩全撤，CUA 完成喝水后数据库仅一条 Interrupted 和一条 Manual，无重复。该护眼点击先于 CUA 介入，未冒称代理操作。
 - build 7 新隔离数据首次引导保存已确认 SQLite onboarded=true，原生 main_visible 从 true 变 false；之后正常退出。测试进程均已清理，未合并或推送。
+
+## 2026-10-14 · 同步并合并 main
+
+- 按用户后续授权拉取 origin/main，将远端 Windows 悬浮拖动／菜单修复 `61e6850` 合入本地 main（`65c5c50`），再合入 codex/bugfix（`9bf6126`）；无文本冲突。
+- 合并后 56 项测试、fmt 和严格 Clippy 通过。Windows 适配检查首次发现检查桩缺少远端新增调用使用的 App、Window::defer 和 bounds_changed；按实际 GPUI 签名补齐后，格式与 Windows 全目标类型检查通过。这仍不代表 Windows 原生运行验收。
+- 保留原有 OTA 未跟踪文档；未修改 release，也未推送远端。build 7 产物仍对应合并前已验证的源码，本次未重新打包。

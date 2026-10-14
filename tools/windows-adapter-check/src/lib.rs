@@ -23,6 +23,7 @@ pub trait PlatformDisplay {
     fn id(&self) -> u64;
     fn visible_bounds(&self) -> Bounds<Pixels>;
 }
+pub struct App;
 pub struct Window;
 impl Window {
     pub fn bounds(&self) -> Bounds<Pixels> {
@@ -31,6 +32,9 @@ impl Window {
     pub fn scale_factor(&self) -> f32 {
         1.
     }
+    // Signature-only stubs; this crate does not execute GPUI's event loop.
+    pub fn defer(&self, _: &mut App, _: impl FnOnce(&mut Window, &mut App) + 'static) {}
+    pub fn bounds_changed(&mut self, _: &mut App) {}
 }
 impl raw_window_handle::HasWindowHandle for Window {
     fn window_handle(
