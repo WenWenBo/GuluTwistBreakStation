@@ -56,8 +56,38 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) ->
     }
     unsafe { DefWindowProcW(hwnd, msg, w, l) }
 }
+// Read before creating any windows, then refresh after session notifications are registered.
+fn refresh_lock_state() {
+    unsafe {
+        let mut data = std::ptr::null_mut();
+        let mut len = 0;
+        if WTSQuerySessionInformationW(
+            std::ptr::null_mut(),
+            WTS_CURRENT_SESSION,
+            WTSSessionInfoEx,
+            &mut data,
+            &mut len,
+        ) != 0
+        {
+            if len as usize >= std::mem::size_of::<WTSINFOEXW>() {
+                let info = &*(data as *const WTSINFOEXW);
+                if info.Level == 1 {
+                    LOCKED.store(
+                        info.Data.WTSInfoExLevel1.SessionFlags as u32 == WTS_SESSIONSTATE_LOCK,
+                        Ordering::Relaxed,
+                    );
+                }
+            }
+            WTSFreeMemory(data as _);
+        }
+    }
+    if let Some(tx) = SENDER.get() {
+        let _ = tx.try_send(Event::Tick);
+    }
+}
 pub fn init(sender: Sender<Event>) {
     let _ = SENDER.set(sender);
+    refresh_lock_state();
     std::thread::spawn(|| unsafe {
         let class: Vec<u16> = "GuluTwistSessionEvents\0".encode_utf16().collect();
         let instance = GetModuleHandleW(std::ptr::null());
@@ -97,27 +127,7 @@ pub fn init(sender: Sender<Event>) {
                 ));
             }
         }
-        let mut data = std::ptr::null_mut();
-        let mut len = 0;
-        if WTSQuerySessionInformationW(
-            std::ptr::null_mut(),
-            WTS_CURRENT_SESSION,
-            WTSSessionInfoEx,
-            &mut data,
-            &mut len,
-        ) != 0
-        {
-            if len as usize >= std::mem::size_of::<WTSINFOEXW>() {
-                let info = &*(data as *const WTSINFOEXW);
-                if info.Level == 1 {
-                    LOCKED.store(
-                        info.Data.WTSInfoExLevel1.SessionFlags as u32 == WTS_SESSIONSTATE_LOCK,
-                        Ordering::Relaxed,
-                    );
-                }
-            }
-            WTSFreeMemory(data as _);
-        }
+        refresh_lock_state();
         let mut message: MSG = std::mem::zeroed();
         while GetMessageW(&mut message, std::ptr::null_mut(), 0, 0) > 0 {
             TranslateMessage(&message);
