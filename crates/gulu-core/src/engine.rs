@@ -22,6 +22,7 @@ impl Engine {
     pub fn new(settings: Settings, clock: ClockSample, pause: Pause) -> Result<Self, ConfigError> {
         let settings = settings.normalized()?;
         let reminders = std::array::from_fn(|i| ReminderRuntime {
+            round: Uuid::new_v4(),
             remaining_ms: u64::from(settings.reminders[i].interval_minutes) * 60_000,
             phase: ReminderPhase::Waiting,
         });
@@ -235,6 +236,7 @@ impl Engine {
             let until_end = (work_end - now.wall).num_milliseconds().max(0) as u64;
             let session = BreakSession {
                 id: Uuid::new_v4(),
+                disable_exit: self.settings.disable_fullscreen_exit,
                 items: pending,
                 started_at: now.wall,
                 duration_seconds,
@@ -272,6 +274,9 @@ impl Engine {
 
     pub fn interrupt(&mut self, now: ClockSample) -> Vec<Effect> {
         let mut effects = self.advance(now, false);
+        if self.session.as_ref().is_some_and(|s| s.disable_exit) {
+            return effects;
+        }
         self.finish_session(
             Outcome::Interrupted,
             "紧急退出本次休息",
@@ -279,6 +284,13 @@ impl Engine {
             &mut effects,
         );
         effects
+    }
+
+    pub fn interrupt_session(&mut self, id: Uuid, now: ClockSample) -> Vec<Effect> {
+        if !self.session.as_ref().is_some_and(|s| s.id == id) {
+            return self.advance(now, false);
+        }
+        self.interrupt(now)
     }
 
     pub fn overlay_failed(&mut self, session_id: Uuid, now: ClockSample) -> Vec<Effect> {
@@ -356,6 +368,56 @@ impl Engine {
             self.reset_item(kind);
         }
         effects
+    }
+
+    /// Bind a visible action to its round, even when another window completes it first.
+    pub fn complete_round(
+        &mut self,
+        kind: ReminderKind,
+        round: Uuid,
+        active_only: bool,
+        now: ClockSample,
+    ) -> (bool, Vec<Effect>) {
+        let mut effects = self.advance(now, false);
+        if self.reminders[kind.index()].round != round
+            || self.previewing
+            || (active_only && (!self.running() || !self.settings.reminders[kind.index()].enabled))
+        {
+            return (false, effects);
+        }
+        effects.extend(self.manual_complete(kind, now));
+        (self.reminders[kind.index()].round != round, effects)
+    }
+
+    pub fn active_reminders(&self) -> Vec<ActiveReminder> {
+        if !self.running() {
+            return Vec::new();
+        }
+        let mut items: Vec<_> = ReminderKind::ALL
+            .into_iter()
+            .filter_map(|kind| {
+                if !self.settings.reminders[kind.index()].enabled {
+                    return None;
+                }
+                let runtime = &self.reminders[kind.index()];
+                let (remaining_ms, state) = match runtime.phase {
+                    ReminderPhase::Waiting => (runtime.remaining_ms, ActivityState::Waiting),
+                    ReminderPhase::Snoozed { remaining_ms, .. } => {
+                        (remaining_ms, ActivityState::Snoozed)
+                    }
+                    ReminderPhase::Pending { .. } => (0, ActivityState::Pending),
+                    ReminderPhase::Breaking => return None,
+                };
+                Some(ActiveReminder {
+                    kind,
+                    round: runtime.round,
+                    remaining_ms,
+                    state,
+                })
+            })
+            .collect();
+        items.sort_by_key(|item| (std::cmp::Reverse(item.remaining_ms), item.kind.index()));
+        items
     }
 
     pub fn replace_settings(
@@ -538,6 +600,7 @@ impl Engine {
     }
     fn reset_item(&mut self, kind: ReminderKind) {
         self.reminders[kind.index()] = ReminderRuntime {
+            round: Uuid::new_v4(),
             remaining_ms: self.interval(kind),
             phase: ReminderPhase::Waiting,
         };

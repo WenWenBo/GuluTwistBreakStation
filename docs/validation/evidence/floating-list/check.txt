@@ -1,0 +1,108 @@
+   Compiling gulu-app v0.1.0 (/Users/shiwen/code/github-repo/GuluTwistBreakStation/crates/gulu-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.77s
+warning: the following packages contain code that will be rejected by a future version of Rust: block v0.1.6
+note: to see what the problems were, use the option `--future-incompat-report`, or run `cargo report future-incompatibilities --id 1`
+     Running unittests src/main.rs (target/debug/deps/gulu_twist-2f4e9690bd177b67)
+
+running 15 tests
+test floating::tests::placement_recovers_offscreen_coordinates_on_negative_monitor ... ok
+test floating_list::tests::list_flips_above_and_stays_in_small_work_area ... ok
+test preferences::tests::failed_toggle_rolls_back_but_failed_movement_does_not_jump ... ok
+test preferences::tests::movement_during_save_is_not_lost_or_allowed_to_reenable_a_hidden_window ... ok
+test preferences::tests::quit_queues_the_last_move_before_the_barrier ... ok
+test resident::tests::deferred_navigation_waits_for_unlock_and_rest_end_and_opens_once ... ok
+test reminder_rows::tests::stack_flips_above_bottom_edge_and_stays_in_negative_origin_work_area ... ok
+test resident::tests::last_explicit_destination_wins_and_quit_discards_it ... ok
+test resident::tests::startup_only_opens_for_onboarding_or_an_unusable_resident_entry ... ok
+test instance_tests::a_second_instance_recognizes_the_native_lock_conflict ... ok
+test floating::tests::display_uses_engine_time_and_real_pause_and_work_states ... ok
+test ui::tests::numeric_edits_allow_empty_but_reject_entire_mixed_pastes ... ok
+test ui::tests::invalid_duration_never_rolls_over_or_overflows ... ok
+test ui::tests::split_duration_preserves_boundaries_and_values ... ok
+test ui::tests::work_time_roundtrips_every_minute ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/gulu_core-089ae8256bfa7958)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/scheduling.rs (target/debug/deps/scheduling-ee7ad538a54d70c7)
+
+running 35 tests
+test duplicate_snooze_does_not_restart_countdown ... ok
+test config_changes_cancel_old_instances ... ok
+test config_validation_and_adjacent_periods ... ok
+test active_list_orders_all_phases_and_filters_disabled ... ok
+test default_eye_care_is_twenty_minutes_twenty_seconds_and_others_are_gentle ... ok
+test changing_duration_only_affects_next_instance ... ok
+test compact_summary_distinguishes_undelivered_due_and_breaking ... ok
+test compact_summary_orders_real_times_and_snoozes_without_mutating ... ok
+test boundary_wins_tie_and_sleep_orders_events ... ok
+test exit_setting_preserves_intervals_and_old_serialized_data ... ok
+test exit_permission_is_captured_and_does_not_block_natural_or_global_end ... ok
+test failed_overlay_snooze_stays_gentle ... ok
+test gentle_items_appear_on_time_without_notification_cooldown ... ok
+test gentle_stays_pending_and_duplicate_callback_is_ignored ... ok
+test interrupt_resets_merged_and_buffers_other_items ... ok
+test gentle_todos_survive_lock_sleep_pause_but_end_at_work_boundary_and_exit ... ok
+test lock_freezes_and_unlock_has_buffer ... ok
+test lock_preserves_gentle_pending ... ok
+test manual_double_click_is_one_record ... ok
+test merged_session_max_not_sum_and_intervals_freeze ... ok
+test mixed_due_items_only_force_eye_care_and_restore_gentle_todo ... ok
+test mode_changes_apply_to_next_instance_and_eye_can_be_gentle ... ok
+test next_selected_workday_skips_today_and_weekend ... ok
+test onboarding_does_not_schedule ... ok
+test next_work_period_discards_old_instances ... ok
+test ordinary_sleep_preserves_interval ... ok
+test pause_expiry_uses_continuous_clock ... ok
+test pause_at_exact_deadline_cancels ... ok
+test preview_does_not_consume_interval_or_write_records ... ok
+test round_completion_ignores_old_actions_after_other_entry_points_and_boundaries ... ok
+test snooze_freezes_in_pause ... ok
+test sleep_break_completes_at_deadline_once ... ok
+test wall_clock_rollback_moves_boundary_but_not_rest_deadline ... ok
+test wall_edit_does_not_extend_rest ... ok
+test mixed_event_sequences_never_commit_instance_twice ... ok
+
+test result: ok. 35 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/gulu_storage-cdbd5afd8c5c8481)
+
+running 14 tests
+test tests::corrupt_database_is_not_replaced ... ok
+test tests::malformed_settings_are_reported_not_silently_reset ... ok
+test tests::invalid_settings_do_not_replace_last_good_configuration ... ok
+test tests::invalid_or_unwritable_ui_preferences_preserve_existing_data ... ok
+test tests::failed_transaction_keeps_settings_and_can_retry ... ok
+test tests::invalid_future_and_failed_migrations_do_not_mutate_settings ... ok
+test tests::crashed_session_recovery_is_idempotent ... ok
+test tests::retention_keeps_today_and_previous_29_days ... ok
+test tests::replay_is_idempotent_and_clearing_records_preserves_settings ... ok
+test tests::old_settings_without_exit_option_keep_all_day_period_and_backup ... ok
+test tests::unsupported_schema_is_not_migrated ... ok
+test tests::legacy_migration_preserves_original_and_does_not_override_later_choices ... ok
+test tests::ui_preferences_are_independent_and_survive_reopen ... ok
+test tests::settings_survive_reopen_and_have_previous_backup ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+   Doc-tests gulu_core
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests gulu_storage
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+    Checking gulu-app v0.1.0 (/Users/shiwen/code/github-repo/GuluTwistBreakStation/crates/gulu-app)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.26s
+warning: the following packages contain code that will be rejected by a future version of Rust: block v0.1.6
+note: to see what the problems were, use the option `--future-incompat-report`, or run `cargo report future-incompatibilities --id 1`

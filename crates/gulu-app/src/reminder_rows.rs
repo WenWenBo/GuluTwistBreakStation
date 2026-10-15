@@ -138,6 +138,7 @@ impl Controller {
             || self.snapshot.borrow().recovery
             || !self.engine.running()
             || self.floating_menu.is_some()
+            || self.floating_list.is_some()
         {
             self.close_reminder_rows(cx);
             return;

@@ -2,6 +2,7 @@
 mod artwork;
 mod floating;
 mod floating_controller;
+mod floating_list;
 mod persistence;
 mod platform;
 mod preferences;
@@ -28,6 +29,10 @@ pub enum Command {
     ResetFloating,
     FloatingMenu,
     CloseFloatingMenu,
+    FloatingList,
+    CloseFloatingList,
+    CheckFloatingListFocus,
+    CompleteFromList(Uuid, ReminderKind, Uuid),
     Open,
     CloseWindow,
     Hide,
@@ -36,9 +41,9 @@ pub enum Command {
     NextDay,
     Pause,
     Resume,
-    Interrupt,
+    Interrupt(Uuid),
     Quit,
-    Manual(ReminderKind),
+    Manual(ReminderKind, Uuid),
     Respond(Uuid, Response),
     Save(Settings),
     Preview,
@@ -69,10 +74,13 @@ pub struct Snapshot {
     pub ui_saving: bool,
     pub ui_error: String,
     pub floating: floating::DisplayState,
+    pub active_reminders: Vec<ActiveReminder>,
+    pub list_open: bool,
     pub settings: Settings,
     pub pause: Pause,
     pub status: String,
     pub remaining: [String; ReminderKind::COUNT],
+    pub rounds: [Uuid; ReminderKind::COUNT],
     pub pending: Vec<Instance>,
     pub records: Vec<ActivityRecord>,
     pub message: String,
@@ -83,10 +91,29 @@ pub struct Snapshot {
     pub storage_error: String,
     pub tray_error: String,
 }
+#[derive(Clone, Copy, Debug)]
+pub struct RestPresentation {
+    pub id: Uuid,
+    pub deadline: u64,
+    pub disable_exit: bool,
+    pub preview: bool,
+}
+impl RestPresentation {
+    fn from_session(session: &BreakSession) -> Self {
+        Self {
+            id: session.id,
+            deadline: session.deadline_ms,
+            disable_exit: session.disable_exit,
+            preview: false,
+        }
+    }
+}
+
 struct Controller {
     preferences: preferences::Preferences,
     floating_window: Option<(AnyWindowHandle, Entity<floating::FloatingView>)>,
     floating_menu: Option<AnyWindowHandle>,
+    floating_list: Option<(AnyWindowHandle, Entity<floating_list::ListView>)>,
     floating_visible: bool,
     floating_failed: bool,
     reminder_windows: std::collections::HashMap<Uuid, AnyWindowHandle>,
@@ -98,7 +125,7 @@ struct Controller {
     jobs: mpsc::Sender<Job>,
     main: Option<(AnyWindowHandle, Entity<ui::MainView>)>,
     overlays: Vec<(AnyWindowHandle, Entity<ui::Overlay>)>,
-    preview: Option<u64>,
+    preview: Option<RestPresentation>,
     tray: Option<tray::Tray>,
     quitting: bool,
     tray_available: bool,
@@ -318,7 +345,7 @@ impl Controller {
         &mut self,
         title: String,
         hints: String,
-        deadline: u64,
+        rest: RestPresentation,
         cx: &mut App,
     ) -> anyhow::Result<()> {
         self.hide_floating(cx);
@@ -351,7 +378,7 @@ impl Controller {
                 move |w, cx| {
                     w.set_window_title("咕嘟扭扭 · 休息中");
                     w.on_window_should_close(cx, |_, _| false);
-                    cx.new(|cx| ui::Overlay::new(t, h, deadline, tx, w, cx))
+                    cx.new(|cx| ui::Overlay::new(t, h, rest, tx, w, cx))
                 },
             )?;
             self.overlays.push((handle, view));
@@ -370,8 +397,9 @@ impl Controller {
         }
         if std::env::var_os("GULU_DIAGNOSTICS").is_some() {
             eprintln!(
-                "overlay_count={} deadline_ms={deadline}",
-                self.overlays.len()
+                "overlay_count={} deadline_ms={}",
+                self.overlays.len(),
+                rest.deadline
             );
         }
         Ok(())
@@ -399,7 +427,9 @@ impl Controller {
                         .map(|i| i.kind.hint())
                         .collect::<Vec<_>>()
                         .join("\n");
-                    if let Err(e) = self.open_overlays(title, hints, s.deadline_ms, cx) {
+                    if let Err(e) =
+                        self.open_overlays(title, hints, RestPresentation::from_session(s), cx)
+                    {
                         self.close_overlays(cx);
                         self.snapshot.borrow_mut().message =
                             format!("遮罩未能完整启动，本次改为轻提醒：{e}");
@@ -471,6 +501,12 @@ impl Controller {
             }
             Event::Command(Command::CloseWindow) => Event::Command(
                 if self
+                    .floating_list
+                    .as_ref()
+                    .is_some_and(|(w, _)| Some(*w) == cx.active_window())
+                {
+                    Command::CloseFloatingList
+                } else if self
                     .floating_menu
                     .is_some_and(|w| Some(w) == cx.active_window())
                 {
@@ -521,8 +557,7 @@ impl Controller {
         if matches!(
             &event,
             Event::Command(
-                Command::Interrupt
-                    | Command::Quit
+                Command::Quit
                     | Command::Pause
                     | Command::Resume
                     | Command::PauseMinutes(_)
@@ -568,6 +603,19 @@ impl Controller {
                 }
                 Command::FloatingMenu => self.open_floating_menu(cx),
                 Command::CloseFloatingMenu => self.close_floating_menu(cx),
+                Command::FloatingList => self.toggle_floating_list(cx),
+                Command::CloseFloatingList => self.close_floating_list(cx),
+                Command::CheckFloatingListFocus => self.check_floating_list_focus(cx),
+                Command::CompleteFromList(id, kind, round) => {
+                    if let Some((_, view)) = self.floating_list.clone()
+                        && view.read(cx).id == id
+                    {
+                        let (accepted, effects) =
+                            self.engine.complete_round(kind, round, true, now);
+                        self.apply(effects, cx);
+                        view.update(cx, |view, cx| view.completed(kind, accepted, cx));
+                    }
+                }
                 Command::CloseWindow => unreachable!("close resolved before dispatch"),
                 Command::Open => self.open_main(cx),
                 Command::Hide => self.hide_main(cx),
@@ -611,17 +659,26 @@ impl Controller {
                     self.apply(effects, cx);
                     self.persist_pause();
                 }
-                Command::Interrupt => {
-                    let was_preview = self.preview.take().is_some();
-                    let was_break = self.engine.session.is_some();
-                    self.close_overlays(cx);
-                    let effects = self.engine.interrupt(now);
-                    self.apply(effects, cx);
-                    if was_preview {
-                        self.snapshot.borrow_mut().message = "体验已结束，没有新增记录。".into();
-                    } else if was_break {
-                        self.snapshot.borrow_mut().message =
-                            "已结束本次休息，下次提醒时间已更新。".into();
+                Command::Interrupt(id) => {
+                    if let Some(preview) = self.preview {
+                        if preview.id == id && !preview.disable_exit {
+                            self.preview = None;
+                            let effects = self.engine.set_preview(false, now);
+                            self.apply(effects, cx);
+                            self.close_overlays(cx);
+                            self.snapshot.borrow_mut().message =
+                                "体验已结束，没有新增记录。".into();
+                        }
+                    } else {
+                        let effects = self.engine.interrupt_session(id, now);
+                        let interrupted = effects.iter().any(
+                            |e| matches!(e, Effect::Record(r) if r.outcome == Outcome::Interrupted),
+                        );
+                        self.apply(effects, cx);
+                        if interrupted {
+                            self.snapshot.borrow_mut().message =
+                                "已结束本次休息，下次提醒时间已更新。".into();
+                        }
                     }
                 }
                 Command::Quit => {
@@ -634,8 +691,8 @@ impl Controller {
                     })
                     .detach();
                 }
-                Command::Manual(kind) => {
-                    let effects = self.engine.manual_complete(kind, now);
+                Command::Manual(kind, round) => {
+                    let (_, effects) = self.engine.complete_round(kind, round, false, now);
                     self.apply(effects, cx);
                 }
                 Command::Respond(id, r) => {
@@ -656,11 +713,17 @@ impl Controller {
                         let deadline = now.continuous_ms + 5000;
                         let effects = self.engine.set_preview(true, now);
                         self.apply(effects, cx);
-                        self.preview = Some(deadline);
+                        let rest = RestPresentation {
+                            id: Uuid::new_v4(),
+                            deadline,
+                            disable_exit: self.engine.settings.disable_fullscreen_exit,
+                            preview: true,
+                        };
+                        self.preview = Some(rest);
                         if let Err(e) = self.open_overlays(
                             "体验一下休息".into(),
                             "5 秒体验，不计入记录。".into(),
-                            deadline,
+                            rest,
                             cx,
                         ) {
                             self.close_overlays(cx);
@@ -791,7 +854,7 @@ impl Controller {
                             .collect::<Vec<_>>()
                             .join(" · "),
                         "给自己一点休息时间。".into(),
-                        s.deadline_ms,
+                        RestPresentation::from_session(&s),
                         cx,
                     ) {
                         self.close_overlays(cx);
@@ -809,7 +872,10 @@ impl Controller {
             }
             Event::Tick => {}
         }
-        if self.preview.is_some_and(|d| now.continuous_ms >= d) {
+        if self
+            .preview
+            .is_some_and(|p| now.continuous_ms >= p.deadline)
+        {
             self.preview = None;
             let effects = self.engine.set_preview(false, now);
             self.apply(effects, cx);
@@ -869,7 +935,9 @@ impl Controller {
         );
         s.settings = self.engine.settings.clone();
         s.pause = self.engine.pause.clone();
+        s.active_reminders = self.engine.active_reminders();
         s.pending = self.engine.pending();
+        s.rounds = self.engine.reminders.each_ref().map(|r| r.round);
         s.break_active = self.engine.session.is_some();
         s.records
             .retain(|r| r.local_date == now.wall.date_naive().to_string());
@@ -941,6 +1009,7 @@ impl Controller {
         }
         drop(s);
         self.sync_floating(cx);
+        self.sync_floating_list(cx);
         self.sync_reminder_rows(cx);
         if self.main_visible
             && let Some((_, v)) = &self.main
@@ -970,7 +1039,13 @@ impl Controller {
                     .max(1) as u64,
             );
         }
+        if let Some((_, view)) = &self.floating_list
+            && let Some(ms) = view.read(cx).next_feedback_ms()
+        {
+            wait = wait.min(ms);
+        }
         if !self.overlays.is_empty()
+            || self.floating_list.is_some()
             || (self.floating_visible && self.snapshot.borrow().floating.ticking)
             || (self.main_visible
                 && self.engine.running()
@@ -1039,10 +1114,13 @@ fn run() -> anyhow::Result<()> {
         ui_saving: false,
         ui_error: loaded.ui_warning,
         floating: Default::default(),
+        active_reminders: Vec::new(),
+        list_open: false,
         settings: loaded.settings,
         pause: loaded.pause,
         status: String::new(),
         remaining: Default::default(),
+        rounds: engine.reminders.each_ref().map(|r| r.round),
         pending: vec![],
         records: loaded.records,
         message: loaded.error.clone().unwrap_or_default(),
@@ -1151,6 +1229,7 @@ fn run() -> anyhow::Result<()> {
             preferences: preferences::Preferences::new(loaded.ui),
             floating_window: None,
             floating_menu: None,
+            floating_list: None,
             floating_visible: false,
             floating_failed: false,
             reminder_windows: Default::default(),

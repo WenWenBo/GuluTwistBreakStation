@@ -1,5 +1,6 @@
 use crate::{Command, Event, Snapshot, platform};
 use async_channel::Sender;
+use chrono::{NaiveTime, Timelike};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     component::{
@@ -7,6 +8,7 @@ use gpui_kit::{
         input::{Input, InputEvent, InputState},
         menu::{DropdownMenu, PopupMenuItem},
         switch::Switch,
+        time_field::{TimeField, TimeFieldEvent, TimeFieldState},
         *,
     },
     *,
@@ -33,6 +35,7 @@ pub fn duration(s: u64) -> String {
 }
 pub(crate) fn icon(name: &str) -> Icon {
     let bytes: &[u8] = match name {
+        "list" => include_bytes!("../../../assets/ui/list.svg"),
         "eye" => include_bytes!("../../../assets/ui/eye.svg"),
         "water" => include_bytes!("../../../assets/ui/water.svg"),
         "stretch" => include_bytes!("../../../assets/ui/stretch.svg"),
@@ -60,7 +63,7 @@ fn button(
     tx: &Sender<Event>,
 ) -> Button {
     let label = label.into();
-    let accessible = if let Command::Manual(kind) = &command {
+    let accessible = if let Command::Manual(kind, _) = &command {
         format!("{}，我已完成", kind.title())
     } else {
         label.to_string()
@@ -143,15 +146,103 @@ fn section(title: &'static str, detail: &'static str) -> Div {
         .child(heading(title))
         .child(caption(detail))
 }
-fn field(text: String, w: &mut Window, cx: &mut Context<MainView>) -> Entity<InputState> {
-    let input = cx.new(|cx| InputState::new(w, cx).default_value(text));
-    cx.subscribe(&input, |_, _, event: &InputEvent, cx| {
-        if matches!(event, InputEvent::Change) {
-            cx.notify();
+fn digits_only(value: &str) -> bool {
+    value.bytes().all(|b| b.is_ascii_digit())
+}
+fn numeric_input(input: &Entity<InputState>, cx: &Context<MainView>) -> Input {
+    let view = cx.entity().downgrade();
+    Input::new(input).on_paste(move |clipboard, _, cx| {
+        // Check the original clipboard before the single-line input removes newlines.
+        let rejected = clipboard.text().is_some_and(|text| !digits_only(&text));
+        if rejected {
+            let _ = view.update(cx, |this, cx| {
+                this.error = "仅支持数字，请直接填写整数。".into();
+                cx.notify();
+            });
         }
+        rejected
+    })
+}
+fn field(text: String, w: &mut Window, cx: &mut Context<MainView>) -> Entity<InputState> {
+    let view = cx.entity().downgrade();
+    let input = cx.new(|cx| {
+        InputState::new(w, cx)
+            .default_value(text)
+            .validate(move |value, cx| {
+                let valid = digits_only(value);
+                if !valid {
+                    let _ = view.update(cx, |this, cx| {
+                        this.error = "仅支持数字，请直接填写整数。".into();
+                        cx.notify();
+                    });
+                }
+                valid
+            })
+    });
+    cx.subscribe_in(&input, w, |this, input, event: &InputEvent, w, cx| {
+        if matches!(event, InputEvent::Blur) {
+            let value = input.read(cx).value().to_string();
+            if let Ok(number) = value.parse::<u32>() {
+                let normalized = number.to_string();
+                if value != normalized {
+                    input.update(cx, |state, cx| state.set_value(normalized, w, cx));
+                }
+            }
+        }
+        if matches!(event, InputEvent::Change) && this.error.starts_with("仅支持数字") {
+            this.error.clear();
+        }
+        cx.notify();
     })
     .detach();
     input
+}
+
+struct PeriodFields {
+    start: Entity<TimeFieldState>,
+    end: Entity<TimeFieldState>,
+    end_of_day: bool,
+}
+impl PeriodFields {
+    fn new(period: WorkPeriod, w: &mut Window, cx: &mut Context<MainView>) -> Self {
+        let mut time_field = |minute: u16| {
+            let state = cx.new(|cx| {
+                let mut state = TimeFieldState::new(w, cx);
+                state.set_time(minute_time(minute), w, cx);
+                state
+            });
+            cx.subscribe(&state, |_, _, _: &TimeFieldEvent, cx| cx.notify())
+                .detach();
+            let focus = state.read(cx).focus_handle(cx);
+            cx.on_blur(&focus, w, |_, _, cx| cx.notify()).detach();
+            state
+        };
+        Self {
+            start: time_field(period.start),
+            end: time_field(if period.end == 1440 { 1439 } else { period.end }),
+            end_of_day: period.end == 1440,
+        }
+    }
+    fn value(&self, cx: &App) -> WorkPeriod {
+        WorkPeriod {
+            start: time_minute(self.start.read(cx).time()),
+            end: if self.end_of_day {
+                1440
+            } else {
+                time_minute(self.end.read(cx).time())
+            },
+        }
+    }
+    fn editing(&self, w: &Window, cx: &App) -> bool {
+        self.start.read(cx).focus_handle(cx).is_focused(w)
+            || self.end.read(cx).focus_handle(cx).is_focused(w)
+    }
+}
+fn minute_time(minute: u16) -> NaiveTime {
+    NaiveTime::from_hms_opt(u32::from(minute / 60), u32::from(minute % 60), 0).unwrap()
+}
+fn time_minute(time: NaiveTime) -> u16 {
+    (time.hour() * 60 + time.minute()) as u16
 }
 
 pub struct MainView {
@@ -162,7 +253,7 @@ pub struct MainView {
     intervals: [Entity<InputState>; ReminderKind::COUNT],
     minutes: [Entity<InputState>; ReminderKind::COUNT],
     seconds: [Entity<InputState>; ReminderKind::COUNT],
-    periods: Vec<(Entity<InputState>, Entity<InputState>)>,
+    periods: Vec<PeriodFields>,
     error: String,
     confirm_clear: bool,
     pending_page: Option<usize>,
@@ -204,7 +295,7 @@ impl MainView {
         let periods = settings
             .periods
             .iter()
-            .map(|p| (field(time(p.start), w, cx), field(time(p.end), w, cx)))
+            .map(|p| PeriodFields::new(*p, w, cx))
             .collect();
         Self {
             shared,
@@ -255,7 +346,7 @@ impl MainView {
             .form
             .periods
             .iter()
-            .map(|p| (field(time(p.start), w, cx), field(time(p.end), w, cx)))
+            .map(|p| PeriodFields::new(*p, w, cx))
             .collect();
         self.error.clear();
         self.pending_page = None;
@@ -285,19 +376,7 @@ impl MainView {
             r.interval_minutes = interval;
             r.break_seconds = duration;
         }
-        s.periods = self
-            .periods
-            .iter()
-            .enumerate()
-            .map(|(i, (a, b))| {
-                Ok(WorkPeriod {
-                    start: parse_time(a.read(cx).value().as_ref())
-                        .map_err(|e| format!("时段 {} 开始：{e}", i + 1))?,
-                    end: parse_time(b.read(cx).value().as_ref())
-                        .map_err(|e| format!("时段 {} 结束：{e}", i + 1))?,
-                })
-            })
-            .collect::<Result<Vec<_>, String>>()?;
+        s.periods = self.periods.iter().map(|p| p.value(cx)).collect();
         s.normalized().map_err(|e| e.to_string())
     }
     fn dirty(&self, cx: &App) -> bool {
@@ -509,7 +588,7 @@ impl MainView {
                                 button(
                                     format!("manual-{i}"),
                                     "我已完成",
-                                    Command::Manual(kind),
+                                    Command::Manual(kind, s.rounds[i]),
                                     &self.tx,
                                 )
                                 .small()
@@ -523,7 +602,7 @@ impl MainView {
             .child(cards)
             .child(caption("锁屏、睡眠或休息时，提醒间隔会暂停。"))
     }
-    fn settings(&self, _narrow: bool, cx: &mut Context<Self>) -> Div {
+    fn settings(&self, _narrow: bool, w: &Window, cx: &mut Context<Self>) -> Div {
         let s = self.shared.borrow();
         let mut content = div().v_flex().gap_5();
         if !s.settings.onboarded {
@@ -656,7 +735,7 @@ impl MainView {
                                 .w(px(94.))
                                 .child(caption("间隔 · 分钟"))
                                 .child(
-                                    Input::new(&self.intervals[i])
+                                    numeric_input(&self.intervals[i], cx)
                                         .aria_label(format!("{}间隔分钟", kind.title()))
                                         .disabled(disabled),
                                 ),
@@ -675,7 +754,7 @@ impl MainView {
                                             .child(caption("休息").flex_shrink_0())
                                             .child(
                                                 div().w(px(62.)).child(
-                                                    Input::new(&self.minutes[i])
+                                                    numeric_input(&self.minutes[i], cx)
                                                         .aria_label(format!(
                                                             "{}休息分钟",
                                                             kind.title()
@@ -686,7 +765,7 @@ impl MainView {
                                             .child(caption("分"))
                                             .child(
                                                 div().w(px(62.)).child(
-                                                    Input::new(&self.seconds[i])
+                                                    numeric_input(&self.seconds[i], cx)
                                                         .aria_label(format!(
                                                             "{}休息秒",
                                                             kind.title()
@@ -702,7 +781,12 @@ impl MainView {
                             d.child(caption("到期显示提醒条，勾选后开始下一轮。"))
                         }),
                 );
-            if let Err(e) = self.reminder_values(i, cx) {
+            let editing = [&self.intervals[i], &self.minutes[i], &self.seconds[i]]
+                .iter()
+                .any(|input| input.read(cx).focus_handle(cx).is_focused(w));
+            if let Err(e) = self.reminder_values(i, cx)
+                && !editing
+            {
                 row = row.child(error_text(e));
             }
             reminders = reminders.child(row);
@@ -710,6 +794,23 @@ impl MainView {
         content = content.child(reminders.child(caption(
             "间隔 5–240 分钟；休息 5 秒–30 分钟，秒数填写 0–59。",
         )));
+        content = content.child(
+            card()
+                .child(section("全屏休息", "退出设置在保存后对下一场休息生效。"))
+                .child(
+                    checkbox::Checkbox::new("disable-fullscreen-exit")
+                        .label("隐藏退出全屏按钮")
+                        .checked(self.form.disable_fullscreen_exit)
+                        .disabled(s.saving)
+                        .on_click(cx.listener(|this, checked, _, cx| {
+                            this.form.disable_fullscreen_exit = *checked;
+                            cx.notify();
+                        })),
+                )
+                .child(caption(
+                    "勾选后，全屏休息中不显示“退出”按钮，倒计时结束后自动关闭。",
+                )),
+        );
         let mut work = card().child(section("工作时间", "工作时间以外，小站安静待命。"));
         let mut days = div().flex().flex_wrap().gap_1();
         for (i, name) in ["一", "二", "三", "四", "五", "六", "日"]
@@ -734,54 +835,76 @@ impl MainView {
         if !self.form.weekdays.iter().any(|v| *v) {
             work = work.child(error_text("请选择至少一个提醒日。"));
         }
-        for (i, (a, b)) in self.periods.iter().enumerate() {
-            let start = parse_time(a.read(cx).value().as_ref());
-            let end = parse_time(b.read(cx).value().as_ref());
-            let inline_error = match (&start, &end) {
-                (Err(e), _) => Some(format!("开始：{e}")),
-                (_, Err(e)) => Some(format!("结束：{e}")),
-                (Ok(a), Ok(b)) if a >= b => Some("结束须晚于开始；跨午夜请拆成两段。".into()),
-                _ => None,
-            };
-            let mut period = div().id(("work-period", i)).v_flex().gap_1().child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .child(caption(format!("时段 {}", i + 1)))
-                    .child(
-                        div().w(px(90.)).child(
-                            Input::new(a)
+        for (i, fields) in self.periods.iter().enumerate() {
+            let value = fields.value(cx);
+            let invalid = value.start >= value.end && !fields.editing(w, cx);
+            let mut period = div()
+                .id(("work-period", i))
+                .v_flex()
+                .gap_2()
+                .child(
+                    div()
+                        .flex()
+                        .flex_wrap()
+                        .items_center()
+                        .gap_2()
+                        .child(caption(format!("时段 {}", i + 1)))
+                        .child(
+                            div()
+                                .id(("start-time", i))
+                                .role(Role::Group)
                                 .aria_label(format!("时段 {} 开始时间", i + 1))
-                                .disabled(s.saving),
-                        ),
-                    )
-                    .child(caption("至"))
-                    .child(
-                        div().w(px(90.)).child(
-                            Input::new(b)
+                                .child(
+                                    TimeField::new(&fields.start)
+                                        .disabled(s.saving)
+                                        .invalid(invalid),
+                                ),
+                        )
+                        .child(caption("至"))
+                        .child(if fields.end_of_day {
+                            div()
+                                .id(("end-of-day-value", i))
+                                .child(caption("24:00（当天结束）"))
+                        } else {
+                            div()
+                                .id(("end-time", i))
+                                .role(Role::Group)
                                 .aria_label(format!("时段 {} 结束时间", i + 1))
-                                .disabled(s.saving),
+                                .child(
+                                    TimeField::new(&fields.end)
+                                        .disabled(s.saving)
+                                        .invalid(invalid),
+                                )
+                        })
+                        .child(
+                            Button::new(("remove", i))
+                                .ghost()
+                                .label("移除")
+                                .accessibility_label(format!("移除时段 {}", i + 1))
+                                .disabled(self.periods.len() == 1 || s.saving)
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.periods.remove(i);
+                                    cx.notify();
+                                })),
                         ),
-                    )
-                    .child(
-                        Button::new(("remove", i))
-                            .ghost()
-                            .label("移除")
-                            .accessibility_label(format!("移除时段 {}", i + 1))
-                            .disabled(self.periods.len() == 1 || s.saving)
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.periods.remove(i);
-                                cx.notify();
-                            })),
-                    ),
-            );
-            if let Some(e) = inline_error {
-                period = period.child(error_text(e));
+                )
+                .child(
+                    checkbox::Checkbox::new(("end-of-day", i))
+                        .label("至当天结束")
+                        .checked(fields.end_of_day)
+                        .disabled(s.saving)
+                        .on_click(cx.listener(move |this, checked, _, cx| {
+                            this.periods[i].end_of_day = *checked;
+                            cx.notify();
+                        })),
+                );
+            if invalid {
+                period = period.child(error_text("结束须晚于开始；跨午夜请拆成两段。"));
             }
             work = work.child(period);
         }
-        if let Err(e) = self.read_settings(cx)
+        if !self.periods.iter().any(|p| p.editing(w, cx))
+            && let Err(e) = self.read_settings(cx)
             && e.contains("重叠")
         {
             work = work.child(error_text(e));
@@ -792,8 +915,14 @@ impl MainView {
                     .label("＋ 添加时段")
                     .disabled(self.periods.len() >= 4 || s.saving)
                     .on_click(cx.listener(|this, _, w, cx| {
-                        this.periods
-                            .push((field("19:00".into(), w, cx), field("20:00".into(), w, cx)));
+                        this.periods.push(PeriodFields::new(
+                            WorkPeriod {
+                                start: 19 * 60,
+                                end: 20 * 60,
+                            },
+                            w,
+                            cx,
+                        ));
                         cx.notify();
                     })),
             )
@@ -803,7 +932,7 @@ impl MainView {
             card()
                 .child(section(
                     "体验与通知",
-                    "全屏休息始终可以紧急退出；提醒条不可用时使用系统通知。",
+                    "全屏休息默认可退出，可在上方隐藏退出按钮；提醒条不可用时使用系统通知。",
                 ))
                 .child(
                     div()
@@ -1060,7 +1189,7 @@ impl MainView {
                 "关闭窗口后，小站继续在菜单栏 / 系统托盘值班。退出应用才会停止提醒。",
             ))
             .child(caption(
-                "轻轻活动到舒适的位置；如厕按个人需要。任何时候都可以紧急退出。",
+                "轻轻活动到舒适的位置；如厕按个人需要。全屏休息默认可退出，也可在设置中隐藏退出按钮。",
             ))
             .child(button("quit", "退出咕嘟扭扭", Command::Quit, &self.tx).outline())
     }
@@ -1088,7 +1217,7 @@ impl Render for MainView {
         }
         let content = match self.page {
             0 => self.home(narrow),
-            1 => self.settings(narrow, cx),
+            1 => self.settings(narrow, window, cx),
             2 => self.records(cx),
             _ => self.about(),
         };
@@ -1321,7 +1450,7 @@ impl Render for MainView {
 pub struct Overlay {
     title: String,
     hints: String,
-    deadline: u64,
+    rest: crate::RestPresentation,
     tx: Sender<Event>,
     focus: FocusHandle,
 }
@@ -1329,7 +1458,7 @@ impl Overlay {
     pub fn new(
         title: String,
         hints: String,
-        deadline: u64,
+        rest: crate::RestPresentation,
         tx: Sender<Event>,
         w: &mut Window,
         cx: &mut Context<Self>,
@@ -1339,7 +1468,7 @@ impl Overlay {
         Self {
             title,
             hints,
-            deadline,
+            rest,
             tx,
             focus,
         }
@@ -1348,11 +1477,12 @@ impl Overlay {
 impl Render for Overlay {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let seconds = self
+            .rest
             .deadline
             .saturating_sub(platform::clock().continuous_ms)
             .div_ceil(1000);
         let compact = window.viewport_size().height < px(650.);
-        let preview = self.title == "体验一下休息";
+        let preview = self.rest.preview;
         let mut tags = div().flex().flex_wrap().justify_center().gap_2();
         if !preview {
             for kind in ReminderKind::ALL {
@@ -1376,8 +1506,13 @@ impl Render for Overlay {
             .id("rest-overlay")
             .role(Role::Group)
             .aria_label(format!(
-                "{}。休息中，可点击底部的“紧急退出本次休息”结束。",
-                self.title
+                "{}。{}",
+                self.title,
+                if self.rest.disable_exit {
+                    "退出按钮已隐藏，休息结束后自动关闭。"
+                } else {
+                    "休息中，可点击底部的“退出”结束。"
+                }
             ))
             .w(window.viewport_size().width)
             .h(window.viewport_size().height)
@@ -1443,54 +1578,31 @@ impl Render for Overlay {
                             ),
                     ),
             )
-            .child(
-                div()
-                    .flex_shrink_0()
-                    .v_flex()
-                    .items_center()
-                    .pt_3()
-                    .pb_2()
-                    .child(
-                        div()
-                            .id("emergency")
-                            .role(Role::Button)
-                            .aria_label("紧急退出本次休息")
-                            .cursor_pointer()
-                            .px_2()
-                            .py_1()
-                            .text_size(px(13.))
-                            .line_height(px(20.))
-                            .font_weight(FontWeight::NORMAL)
-                            .text_color(rgb(MUTED))
-                            .underline()
-                            .hover(|d| d.text_color(rgb(INK)))
-                            .on_mouse_move(|_, window, _| {
-                                // GPUI on macOS only updates the cursor for the active window.
-                                // Each display has its own overlay, so activate the hovered one.
-                                if cfg!(target_os = "macos") && !window.is_window_active() {
-                                    window.activate_window();
-                                    window.refresh();
-                                }
-                            })
-                            .on_click(cx.listener(|this, _, _, _| {
-                                let _ = this.tx.try_send(Event::Command(Command::Interrupt));
-                            }))
-                            .child("紧急退出本次休息"),
-                    ),
-            )
+            .when(!self.rest.disable_exit, |overlay| {
+                overlay.child(
+                    div()
+                        .flex_shrink_0()
+                        .v_flex()
+                        .items_center()
+                        .pt_3()
+                        .pb_2()
+                        .child(
+                            Button::new("emergency")
+                                .label("退出")
+                                .accessibility_label("退出全屏休息")
+                                .ghost()
+                                .small()
+                                .text_color(rgb(MUTED))
+                                .underline()
+                                .on_click(cx.listener(|this, _, _, _| {
+                                    let _ = this
+                                        .tx
+                                        .try_send(Event::Command(Command::Interrupt(this.rest.id)));
+                                })),
+                        ),
+                )
+            })
     }
-}
-fn time(m: u16) -> String {
-    format!("{:02}:{:02}", m / 60, m % 60)
-}
-fn parse_time(s: &str) -> Result<u16, String> {
-    let (a, b) = s.trim().split_once(':').ok_or("请输入 HH:MM")?;
-    let h = a.parse::<u16>().map_err(|_| "小时格式不正确")?;
-    let m = b.parse::<u16>().map_err(|_| "分钟格式不正确")?;
-    if h > 24 || m > 59 || (h == 24 && m != 0) {
-        return Err("时间范围为 00:00–24:00".into());
-    }
-    Ok(h * 60 + m)
 }
 fn parse_reminder(interval: &str, minutes: &str, seconds: &str) -> Result<(u32, u32), String> {
     let interval = interval
@@ -1522,7 +1634,16 @@ fn parse_reminder(interval: &str, minutes: &str, seconds: &str) -> Result<(u32, 
 }
 #[cfg(test)]
 mod tests {
-    use super::{parse_reminder, parse_time};
+    use super::{digits_only, minute_time, parse_reminder, time_minute};
+    #[test]
+    fn numeric_edits_allow_empty_but_reject_entire_mixed_pastes() {
+        for valid in ["", "0", "005", "240"] {
+            assert!(digits_only(valid));
+        }
+        for invalid in ["1.5", "-5", "20分钟", "1\n5", "1\r\n5", "２０", " 5", "+5"] {
+            assert!(!digits_only(invalid));
+        }
+    }
     #[test]
     fn split_duration_preserves_boundaries_and_values() {
         for seconds in [5, 30, 59, 60, 61, 120, 180, 1799, 1800] {
@@ -1554,11 +1675,9 @@ mod tests {
         }
     }
     #[test]
-    fn work_time_accepts_midnight_end_but_rejects_invalid_times() {
-        assert_eq!(parse_time("24:00"), Ok(1440));
-        assert_eq!(parse_time("09:05"), Ok(545));
-        for time in ["24:01", "12:60", "25:00", "9", "hello"] {
-            assert!(parse_time(time).is_err());
+    fn work_time_roundtrips_every_minute() {
+        for minute in 0..1440 {
+            assert_eq!(time_minute(minute_time(minute)), minute);
         }
     }
 }

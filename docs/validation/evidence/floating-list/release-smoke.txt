@@ -1,0 +1,20 @@
+dock_icon=embedded-small-gulu size=CGSize { width: 192.0, height: 192.0 }
+resident_tray_available=true
+resident_state phase=startup main_exists=false main_visible=false tray_available=true floating_visible=true overlays=0 quitting=false
+resident_activation_policy=NSApplicationActivationPolicy(1)
+2026-10-15T19:59:16.180911+08:00 command=FloatingList
+resident_state phase=event main_exists=false main_visible=false tray_available=true floating_visible=true overlays=0 quitting=false
+resident_activation_policy=NSApplicationActivationPolicy(1)
+2026-10-15T20:00:08.008104+08:00 command=CheckFloatingListFocus
+resident_state phase=event main_exists=false main_visible=false tray_available=true floating_visible=true overlays=0 quitting=false
+resident_activation_policy=NSApplicationActivationPolicy(1)
+2026-10-15T20:00:39.261659+08:00 command=CheckFloatingListFocus
+resident_state phase=event main_exists=false main_visible=false tray_available=true floating_visible=true overlays=0 quitting=false
+resident_activation_policy=NSApplicationActivationPolicy(1)
+2026-10-15 20:00:39.757 gulu-twist[6788:225378246] TSM AdjustCapsLockLEDForKeyTransitionHandling - _ISSetPhysicalKeyboardCapsLockLED Inhibit
+2026-10-15T20:00:39.760403+08:00 command=CloseFloatingList
+resident_state phase=event main_exists=false main_visible=false tray_available=true floating_visible=true overlays=0 quitting=false
+resident_activation_policy=NSApplicationActivationPolicy(1)
+2026-10-15T20:00:40.166051+08:00 command=Quit
+resident_state phase=event main_exists=false main_visible=false tray_available=true floating_visible=false overlays=0 quitting=true
+resident_activation_policy=NSApplicationActivationPolicy(1)

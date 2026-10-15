@@ -1,0 +1,8 @@
+   Compiling gulu-app v0.1.0 (/Users/shiwen/code/github-repo/GuluTwistBreakStation/crates/gulu-app)
+    Finished `release` profile [optimized] target(s) in 39.72s
+warning: the following packages contain code that will be rejected by a future version of Rust: block v0.1.6
+note: to see what the problems were, use the option `--future-incompat-report`, or run `cargo report future-incompatibilities --id 1`
+dist/aarch64-apple-darwin/.package.SQQglH/GuluTwist Break Station.app: replacing existing signature
+icon verified: AppIcon-e0768e63bc1c.icns, build 8
+dist/aarch64-apple-darwin/GuluTwist Break Station.app
+dist/GuluTwist-0.1.0-build8-aarch64-apple-darwin.zip

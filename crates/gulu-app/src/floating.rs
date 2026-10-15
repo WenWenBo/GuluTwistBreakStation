@@ -9,7 +9,7 @@ use gulu_core::*;
 use gulu_storage::FloatingPosition;
 use std::{cell::RefCell, rc::Rc};
 
-pub const WIDTH: f32 = 200.;
+pub const WIDTH: f32 = 236.;
 pub const HEIGHT: f32 = 52.;
 pub const MENU_WIDTH: f32 = 216.;
 pub const MENU_HEIGHT: f32 = 296.;
@@ -168,6 +168,14 @@ impl FloatingView {
             platform::refresh_floating_shape(w);
         })
         .detach();
+        cx.observe_window_activation(w, |this, w, _| {
+            if !w.is_window_active() {
+                let _ = this
+                    .tx
+                    .try_send(Event::Command(Command::CheckFloatingListFocus));
+            }
+        })
+        .detach();
         cx.observe_window_appearance(w, |_, _, cx| cx.notify())
             .detach();
         let focus = cx.focus_handle();
@@ -194,6 +202,8 @@ impl Render for FloatingView {
         let state = s.floating.clone();
         let (paper, muted, green, line) = colors(w);
         let title = state.title.clone();
+        let list_open = s.list_open;
+        let list_disabled = s.active_reminders.is_empty();
         drop(s);
         div()
             .id("floating-capsule")
@@ -214,7 +224,7 @@ impl Render for FloatingView {
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, e: &MouseDownEvent, _, _| {
-                    this.press = (f32::from(e.position.x) < WIDTH - 42.).then_some(e.position);
+                    this.press = (f32::from(e.position.x) < WIDTH - 76.).then_some(e.position);
                 }),
             )
             .on_mouse_move(cx.listener(|this, e: &MouseMoveEvent, w, _| {
@@ -299,6 +309,26 @@ impl Render for FloatingView {
                                     .child(state.value),
                             ),
                     ),
+            )
+            .child(
+                Button::new("floating-list")
+                    .icon(crate::ui::icon("list").text_color(rgb(green)))
+                    .accessibility_label("查看事项")
+                    .tooltip(if list_disabled {
+                        "当前暂无可处理事项"
+                    } else {
+                        "查看事项"
+                    })
+                    .ghost()
+                    .selected(list_open)
+                    .disabled(list_disabled)
+                    .text_color(rgb(green))
+                    .w(px(28.))
+                    .h(px(28.))
+                    .p_0()
+                    .on_click(cx.listener(|this, _, _, _| {
+                        let _ = this.tx.try_send(Event::Command(Command::FloatingList));
+                    })),
             )
             .child(
                 Button::new("floating-more")
@@ -480,7 +510,7 @@ mod tests {
             y: -100.,
         };
         let placed = placed_bounds(work, Some(&pos), size(px(WIDTH), px(HEIGHT)));
-        assert_eq!(placed.origin, point(px(-200.), px(-200.)));
+        assert_eq!(placed.origin, point(px(-WIDTH), px(-200.)));
         let small = Bounds::new(point(px(0.), px(0.)), size(px(100.), px(40.)));
         assert_eq!(
             placed_bounds(small, None, size(px(WIDTH), px(HEIGHT))).origin,

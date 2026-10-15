@@ -353,6 +353,7 @@ mod tests {
             .unwrap();
         let mut settings = store.settings().unwrap();
         assert_eq!(settings.schema_version, 2);
+        assert!(!settings.disable_fullscreen_exit);
         assert_eq!(settings.reminders[0].interval_minutes, 17);
         assert!(!settings.reminders[1].enabled);
         assert!(
@@ -429,11 +430,61 @@ mod tests {
         let mut settings = Settings::default();
         store.save_settings(&settings).unwrap();
         settings.onboarded = true;
+        settings.disable_fullscreen_exit = true;
         store.save_settings(&settings).unwrap();
         drop(store);
         let store = Store::open(&path).unwrap();
         assert!(store.settings().unwrap().onboarded);
+        assert!(store.settings().unwrap().disable_fullscreen_exit);
         assert!(!store.settings_backup().unwrap().unwrap().onboarded);
+        assert!(
+            !store
+                .settings_backup()
+                .unwrap()
+                .unwrap()
+                .disable_fullscreen_exit
+        );
+    }
+    #[test]
+    fn old_settings_without_exit_option_keep_all_day_period_and_backup() {
+        let mut store = Store::memory().unwrap();
+        let mut settings = Settings {
+            periods: vec![gulu_core::WorkPeriod {
+                start: 0,
+                end: 1440,
+            }],
+            ..Default::default()
+        };
+        let mut old = serde_json::to_value(&settings).unwrap();
+        old.as_object_mut()
+            .unwrap()
+            .remove("disable_fullscreen_exit");
+        store
+            .connection
+            .execute(
+                "INSERT INTO preferences VALUES ('settings',?1)",
+                [old.to_string()],
+            )
+            .unwrap();
+        assert_eq!(store.settings().unwrap(), settings);
+        settings.disable_fullscreen_exit = true;
+        store.save_settings(&settings).unwrap();
+        assert_eq!(store.settings().unwrap(), settings);
+        assert!(
+            !store
+                .settings_backup()
+                .unwrap()
+                .unwrap()
+                .disable_fullscreen_exit
+        );
+        store
+            .connection
+            .execute_batch("PRAGMA query_only=ON")
+            .unwrap();
+        let mut changed = settings.clone();
+        changed.disable_fullscreen_exit = false;
+        assert!(store.save_settings(&changed).is_err());
+        assert_eq!(store.settings().unwrap(), settings);
     }
     #[test]
     fn replay_is_idempotent_and_clearing_records_preserves_settings() {
@@ -491,6 +542,15 @@ mod tests {
         let effects = engine.tick(c);
         store
             .commit_effects(&effects, engine.session.as_ref())
+            .unwrap();
+        let mut legacy = serde_json::to_value(engine.session.as_ref().unwrap()).unwrap();
+        legacy.as_object_mut().unwrap().remove("disable_exit");
+        store
+            .connection
+            .execute(
+                "UPDATE preferences SET value=?1 WHERE key='active_session'",
+                [legacy.to_string()],
+            )
             .unwrap();
         assert_eq!(store.recover_session(c.wall).unwrap(), 1);
         assert_eq!(store.recover_session(c.wall).unwrap(), 0);

@@ -80,6 +80,8 @@ pub struct Instance {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BreakSession {
     pub id: Uuid,
+    #[serde(default)]
+    pub disable_exit: bool,
     pub items: Vec<Instance>,
     pub started_at: DateTime<FixedOffset>,
     pub deadline_ms: u64,
@@ -109,8 +111,24 @@ pub enum ReminderPhase {
 }
 #[derive(Debug, Clone)]
 pub struct ReminderRuntime {
+    pub round: Uuid,
     pub remaining_ms: u64,
     pub phase: ReminderPhase,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ActivityState {
+    Waiting,
+    Snoozed,
+    Pending,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ActiveReminder {
+    pub kind: ReminderKind,
+    pub round: Uuid,
+    pub remaining_ms: u64,
+    pub state: ActivityState,
 }
 
 /// Read-only summary for compact views. Times remain effective working time.

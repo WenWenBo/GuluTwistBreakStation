@@ -605,3 +605,114 @@ fn mode_changes_apply_to_next_instance_and_eye_can_be_gentle() {
     );
     assert!(e.instance(ReminderKind::EyeCare).unwrap().gentle);
 }
+
+#[test]
+fn exit_permission_is_captured_and_does_not_block_natural_or_global_end() {
+    let mut e = engine(ReminderMode::Strong);
+    e.settings.disable_fullscreen_exit = true;
+    e.tick(clock(300));
+    e.tick(clock(301));
+    let id = e.session.as_ref().unwrap().id;
+    let mut settings = e.settings.clone();
+    settings.disable_fullscreen_exit = false;
+    assert!(e.replace_settings(settings, clock(302)).unwrap().is_empty());
+    assert!(e.session.as_ref().unwrap().disable_exit);
+    assert!(records(&e.interrupt_session(id, clock(303))).is_empty());
+    assert!(e.session.is_some());
+    assert_eq!(
+        records(&e.tick(clock(331))),
+        vec![Outcome::Timed; ReminderKind::COUNT]
+    );
+    e.tick(clock(631));
+    e.tick(clock(632));
+    let next = e.session.as_ref().unwrap().id;
+    assert!(!e.session.as_ref().unwrap().disable_exit);
+    assert!(records(&e.interrupt_session(id, clock(633))).is_empty());
+    assert_eq!(
+        records(&e.interrupt_session(next, clock(634))),
+        vec![Outcome::Interrupted; ReminderKind::COUNT]
+    );
+
+    let mut e = engine(ReminderMode::Strong);
+    e.settings.disable_fullscreen_exit = true;
+    e.tick(clock(300));
+    e.tick(clock(301));
+    assert_eq!(
+        records(&e.set_pause(Pause::Manual, clock(302))),
+        vec![Outcome::Cancelled; ReminderKind::COUNT]
+    );
+    assert!(e.session.is_none());
+}
+
+#[test]
+fn exit_setting_preserves_intervals_and_old_serialized_data() {
+    let mut e = engine(ReminderMode::Gentle);
+    e.tick(clock(120));
+    let rounds = e.reminders.each_ref().map(|r| r.round);
+    let mut settings = e.settings.clone();
+    settings.disable_fullscreen_exit = true;
+    assert!(e.replace_settings(settings, clock(120)).unwrap().is_empty());
+    assert_eq!(e.reminders[0].remaining_ms, 180_000);
+    assert_eq!(e.reminders.each_ref().map(|r| r.round), rounds);
+    let mut old = serde_json::to_value(&e.settings).unwrap();
+    old.as_object_mut()
+        .unwrap()
+        .remove("disable_fullscreen_exit");
+    assert!(
+        !serde_json::from_value::<Settings>(old)
+            .unwrap()
+            .disable_fullscreen_exit
+    );
+}
+
+#[test]
+fn active_list_orders_all_phases_and_filters_disabled() {
+    let mut e = engine(ReminderMode::Gentle);
+    e.tick(clock(300));
+    let water = e.instance(ReminderKind::Water).unwrap().id;
+    e.respond(water, Response::Snooze(5), clock(300));
+    e.manual_complete(ReminderKind::Stand, clock(300));
+    e.settings.reminders[2].enabled = false;
+    let items = e.active_reminders();
+    assert_eq!(
+        items.iter().map(|i| i.kind).collect::<Vec<_>>(),
+        vec![
+            ReminderKind::Water,
+            ReminderKind::Stand,
+            ReminderKind::Stretch,
+            ReminderKind::EyeCare
+        ]
+    );
+    assert_eq!(items[0].state, ActivityState::Snoozed);
+    assert_eq!(items[1].state, ActivityState::Waiting);
+    assert_eq!(items[2].state, ActivityState::Pending);
+    assert_eq!(items[2].remaining_ms, 0);
+    e.set_pause(Pause::Manual, clock(300));
+    assert!(e.active_reminders().is_empty());
+}
+
+#[test]
+fn round_completion_ignores_old_actions_after_other_entry_points_and_boundaries() {
+    let mut e = engine(ReminderMode::Gentle);
+    let kind = ReminderKind::Water;
+    let round = e.reminders[0].round;
+    e.tick(clock(300));
+    assert_eq!(e.reminders[0].round, round);
+    let id = e.instance(kind).unwrap().id;
+    e.respond(id, Response::Complete, clock(300));
+    let (accepted, effects) = e.complete_round(kind, round, true, clock(302));
+    assert!(!accepted);
+    assert!(records(&effects).is_empty());
+    let next = e.reminders[0].round;
+    let (accepted, effects) = e.complete_round(kind, next, true, clock(303));
+    assert!(accepted);
+    assert_eq!(records(&effects), vec![Outcome::Manual]);
+    assert_eq!(e.reminders[0].remaining_ms, 300_000);
+    assert!(e.instance(ReminderKind::Stand).is_some());
+    assert!(!e.complete_round(kind, next, true, clock(305)).0);
+    let round = e.reminders[0].round;
+    e.set_pause(Pause::Manual, clock(305));
+    assert!(!e.complete_round(kind, round, true, clock(306)).0);
+    e.set_pause(Pause::None, clock(307));
+    assert!(!e.complete_round(kind, round, true, clock(10_800)).0);
+}
