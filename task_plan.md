@@ -5,6 +5,10 @@
 > 需求基线：[PRD 1.0](docs/requirements/PRD.md)，用户已于本日确认。  
 > 当前阶段：P1–P6 实施中，按用户最新要求优先完成本机开发验证。
 
+## 最新专项计划（2026-10-15）
+
+已完成[胶囊事项清单、时间输入与全屏退出设置开发计划](docs/implementation/FLOATING_LIST_TIME_INPUT_PLAN.md)，需求依据为[专项 PRD v1.1](tasks/prd-floating-list-time-input.md)。本次拆分 12 项开发任务，覆盖 8 个用户故事和 21 个重点验收场景；四项代码、64 项自动测试和 Mac 双架构 build 8 Release 构建已完成；解锁后已补验本机主要交互并修复清单焦点问题，键盘／拖动边界及 Windows／Intel 实机待测，详见[专项报告](docs/validation/FLOATING_LIST_TIME_INPUT_REPORT.md)。以下内容保留为原项目的历史实施计划与记录，新专项状态以专项计划为准。
+
 ## 执行调整（2026-10-13）
 
 新增功能计划：用户已确认 200 × 52、两端完整半圆的桌面胶囊外观。开发步骤、代码改动和验收要求见 [紧凑胶囊悬浮窗实现计划](docs/implementation/FLOATING_WIDGET_PLAN.md)。功能已在从 `origin/main` 创建的 `feat/compact-floating-capsule` 分支实现，46 项测试与静态检查、Mac 双架构打包通过。解锁后已补验本机外观、主窗往返、真实拖动、开关与位置持久化、草稿保护、自然正式休息和体验退出；完整边界验收、Windows 原生编译与 Intel 实机运行仍待完成。证据见[胶囊验证报告](docs/validation/FLOATING_WIDGET_REPORT.md)，后续按[专项手册](docs/validation/FLOATING_WIDGET_MANUAL_TESTS.md)补验；下文已有功能的执行记录保持独立。

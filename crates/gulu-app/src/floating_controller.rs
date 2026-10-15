@@ -39,6 +39,7 @@ impl Controller {
         }
     }
     pub(crate) fn hide_floating(&mut self, cx: &mut App) {
+        self.close_floating_list(cx);
         self.close_floating_menu(cx);
         if self.floating_visible
             && let Some((handle, _)) = &self.floating_window
@@ -189,6 +190,7 @@ impl Controller {
         }
     }
     pub(crate) fn open_floating_menu(&mut self, cx: &mut App) {
+        self.close_floating_list(cx);
         if self.floating_menu.is_some() {
             self.close_floating_menu(cx);
             return;

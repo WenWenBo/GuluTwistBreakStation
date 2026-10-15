@@ -77,6 +77,9 @@ pub struct WorkPeriod {
 pub struct Settings {
     pub schema_version: u32,
     pub onboarded: bool,
+    #[serde(default)]
+    // Retain the persisted key; true now hides the exit button and rejects manual exit.
+    pub disable_fullscreen_exit: bool,
     pub reminders: [ReminderConfig; ReminderKind::COUNT],
     /// Monday first.
     pub weekdays: [bool; 7],
@@ -88,6 +91,7 @@ impl Default for Settings {
         Self {
             schema_version: 2,
             onboarded: false,
+            disable_fullscreen_exit: false,
             reminders: std::array::from_fn(|i| {
                 let (interval_minutes, break_seconds) =
                     [(30, 30), (40, 60), (90, 180), (60, 120), (20, 20)][i];

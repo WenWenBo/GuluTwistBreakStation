@@ -6,7 +6,7 @@
 
 ## 本机运行
 
-当前个人预览版为 0.1.0（Mac build 7，菜单栏／托盘常驻），目标为 macOS 15+（Apple Silicon / Intel）与 Windows 10／11 x64。实际验证范围见[常驻模式报告](docs/validation/RESIDENT_APP_REPORT.md)，源码支持不等于目标机器实测通过。
+当前个人预览版为 0.1.0（Mac build 8，菜单栏／托盘常驻），目标为 macOS 15+（Apple Silicon / Intel）与 Windows 10／11 x64。实际验证范围见[常驻模式报告](docs/validation/RESIDENT_APP_REPORT.md)，源码支持不等于目标机器实测通过。
 
 macOS 打包后运行，系统通知需要真实 `.app`：
 
@@ -15,7 +15,7 @@ scripts/package-macos.sh aarch64-apple-darwin
 open 'dist/aarch64-apple-darwin/GuluTwist Break Station.app'
 ```
 
-Mac ZIP 文件名包含构建号（例如 `GuluTwist-0.1.0-build7-aarch64-apple-darwin.zip`），旧无构建号下载路径也同步为最新包。build 3 修复替换应用后 Dock 仍显示旧图标的问题，见 [修复记录](docs/validation/DOCK_ICON_FIX.md)。
+Mac ZIP 文件名包含构建号（例如 `GuluTwist-0.1.0-build8-aarch64-apple-darwin.zip`），旧无构建号下载路径也同步为最新包。build 3 修复替换应用后 Dock 仍显示旧图标的问题，见 [修复记录](docs/validation/DOCK_ICON_FIX.md)。
 
 Intel Mac 包：
 
@@ -84,7 +84,7 @@ Mac 正常运行只在菜单栏显示入口，打开设置也不占 Dock 或 ⌘
 
 ## 桌面胶囊
 
-在“提醒设置 → 桌面悬浮窗”开启 **显示桌面悬浮窗**，即可使用 200 × 52、两端半圆的小窗，查看最近事项和倒计时。双击图标或时间打开主窗口，单击不会打开；关闭主窗口后胶囊继续显示。两者可以同时存在，隐藏胶囊不暂停提醒。拖动会记住位置，右侧更多菜单提供暂停、设置、重置位置与隐藏入口，托盘可重新显示。
+在“提醒设置 → 桌面悬浮窗”开启 **显示桌面悬浮窗**，即可使用 236 × 52、两端半圆的小窗，查看最近事项和倒计时。双击图标或时间打开主窗口，单击不会打开；关闭主窗口后胶囊继续显示。两者可以同时存在，隐藏胶囊不暂停提醒。拖动会记住位置，右侧更多菜单提供暂停、设置、重置位置与隐藏入口，托盘可重新显示。
 
 旧用户默认关闭；开关与位置独立保存，不提交提醒规则草稿。正式休息、体验及锁屏期间临时隐藏，结束后按开关恢复。自动检查与 Mac 双架构打包已通过；Mac 本机已验证胶囊外观、主窗切换、拖动、开关与位置持久化、草稿保护以及休息隐藏／恢复。Windows 11 已补验原生构建、胶囊开关持久化与安静冷启动；Intel 实机运行、锁屏睡眠、混合缩放与稳定性等边界仍需补验。详见[胶囊验证报告](docs/validation/FLOATING_WIDGET_REPORT.md)、[Windows 验证报告](docs/validation/RESIDENT_APP_WINDOWS_REPORT.md)与[专项手工步骤](docs/validation/FLOATING_WIDGET_MANUAL_TESTS.md)。
 
@@ -100,3 +100,5 @@ Mac 正常运行只在菜单栏显示入口，打开设置也不占 Dock 或 ⌘
 - [紧凑胶囊悬浮窗实现计划](docs/implementation/FLOATING_WIDGET_PLAN.md)（已实现，本机主要交互已验证）
 
 首版没有账号、云同步、自动更新或开机启动。公开发布前还需要正式签名、公证与完整的平台和长期稳定性验收。
+
+本次 build 8 增加胶囊事项清单、分段时间输入、纯数字时长输入与可配置的全屏退出按钮。实现及验证范围见 [交付报告](docs/validation/FLOATING_LIST_TIME_INPUT_REPORT.md)。

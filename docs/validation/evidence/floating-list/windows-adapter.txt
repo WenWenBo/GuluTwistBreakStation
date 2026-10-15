@@ -1,0 +1,3 @@
+    Checking gulu-core v0.1.0 (/Users/shiwen/code/github-repo/GuluTwistBreakStation/crates/gulu-core)
+    Checking windows-adapter-check v0.0.0 (/Users/shiwen/code/github-repo/GuluTwistBreakStation/tools/windows-adapter-check)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.49s

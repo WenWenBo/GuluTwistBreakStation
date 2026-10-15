@@ -1,0 +1,40 @@
+dock_icon=embedded-small-gulu size=CGSize { width: 192.0, height: 192.0 }
+resident_tray_available=true
+resident_state phase=startup main_exists=false main_visible=false tray_available=true floating_visible=true overlays=0 quitting=false
+resident_activation_policy=NSApplicationActivationPolicy(1)
+2026-10-15T18:04:30.530758+08:00 command=FloatingList
+resident_state phase=event main_exists=false main_visible=false tray_available=true floating_visible=true overlays=0 quitting=false
+resident_activation_policy=NSApplicationActivationPolicy(1)
+2026-10-15T18:05:17.964205+08:00 command=CompleteFromList(623dfde4-a5fd-4b3e-a5cc-e605ca16db25, Water, 4e48b58c-408f-4e89-9830-7723cfc6ba29)
+2026-10-15T18:05:17.964521+08:00 effects=[Record(ActivityRecord { id: b0d787b7-9f2c-41cf-a035-c19826082adc, instance_id: b0d787b7-9f2c-41cf-a035-c19826082adc, session_id: None, kind: Water, outcome: Manual, ended_at: 2026-10-15T18:05:17.964205+08:00, local_date: "2026-10-15", reason: "主动完成" })]
+resident_state phase=event main_exists=false main_visible=false tray_available=true floating_visible=true overlays=0 quitting=false
+resident_activation_policy=NSApplicationActivationPolicy(1)
+2026-10-15 18:06:12.140 gulu-twist[4583:224845118] TSM AdjustCapsLockLEDForKeyTransitionHandling - _ISSetPhysicalKeyboardCapsLockLED Inhibit
+2026-10-15T18:06:12.149027+08:00 command=CloseFloatingList
+resident_state phase=event main_exists=false main_visible=false tray_available=true floating_visible=true overlays=0 quitting=false
+resident_activation_policy=NSApplicationActivationPolicy(1)
+2026-10-15T18:07:04.025191+08:00 command=FloatingMenu
+resident_state phase=event main_exists=false main_visible=false tray_available=true floating_visible=true overlays=0 quitting=false
+resident_activation_policy=NSApplicationActivationPolicy(1)
+2026-10-15T18:07:04.039481+08:00 command=CheckFloatingListFocus
+resident_state phase=event main_exists=false main_visible=false tray_available=true floating_visible=true overlays=0 quitting=false
+resident_activation_policy=NSApplicationActivationPolicy(1)
+2026-10-15T18:07:37.443263+08:00 command=CloseFloatingMenu
+resident_state phase=event main_exists=false main_visible=false tray_available=true floating_visible=true overlays=0 quitting=false
+resident_activation_policy=NSApplicationActivationPolicy(1)
+2026-10-15T18:07:37.444379+08:00 command=OpenSettings
+resident_state phase=event main_exists=true main_visible=true tray_available=true floating_visible=true overlays=0 quitting=false
+resident_activation_policy=NSApplicationActivationPolicy(1)
+2026-10-15T18:09:12.689308+08:00 command=Save(Settings { schema_version: 2, onboarded: true, disable_fullscreen_exit: false, reminders: [ReminderConfig { mode: Gentle, enabled: true, interval_minutes: 5, break_seconds: 15 }, ReminderConfig { mode: Gentle, enabled: true, interval_minutes: 10, break_seconds: 15 }, ReminderConfig { mode: Gentle, enabled: true, interval_minutes: 240, break_seconds: 15 }, ReminderConfig { mode: Gentle, enabled: true, interval_minutes: 15, break_seconds: 15 }, ReminderConfig { mode: Strong, enabled: true, interval_minutes: 5, break_seconds: 15 }], weekdays: [true, true, true, true, true, true, true], periods: [WorkPeriod { start: 0, end: 1440 }] })
+resident_state phase=event main_exists=true main_visible=true tray_available=true floating_visible=true overlays=0 quitting=false
+resident_activation_policy=NSApplicationActivationPolicy(1)
+resident_state phase=event main_exists=true main_visible=true tray_available=true floating_visible=true overlays=0 quitting=false
+resident_activation_policy=NSApplicationActivationPolicy(1)
+2026-10-15T18:09:13.904816+08:00 effects=[OpenBreak(BreakSession { id: 482fffbd-763a-4ad0-9217-617c34f44634, disable_exit: false, items: [Instance { id: b272ac3d-308c-41ac-a03c-14a36979f7ca, kind: EyeCare, break_seconds: 15, created_at: 2026-10-15T18:09:12.879065+08:00, gentle: false }], started_at: 2026-10-15T18:09:13.904763+08:00, deadline_ms: 1500461789, work_end_ms: 1521492884, duration_seconds: 15 })]
+overlay_count=3 deadline_ms=1500461789
+2026-10-15T18:09:28.912831+08:00 effects=[CloseBreak, Record(ActivityRecord { id: b272ac3d-308c-41ac-a03c-14a36979f7ca, instance_id: b272ac3d-308c-41ac-a03c-14a36979f7ca, session_id: Some(482fffbd-763a-4ad0-9217-617c34f44634), kind: EyeCare, outcome: Timed, ended_at: 2026-10-15T18:09:28.904766+08:00, local_date: "2026-10-15", reason: "休息倒计时结束" })]
+2026-10-15T18:10:01.360673+08:00 command=CheckFloatingListFocus
+resident_state phase=event main_exists=true main_visible=true tray_available=true floating_visible=true overlays=0 quitting=false
+resident_activation_policy=NSApplicationActivationPolicy(1)
+2026-10-15T18:10:40.837769+08:00 clock_transition locked=false->true awake_delta_ms=281 continuous_delta_ms=281 remaining_before_ms=[227142, 227321, 14027321, 527321, 228356]
+2026-10-15T18:10:40.837769+08:00 clock_reconciled remaining_after_ms=[226861, 227040, 14027040, 527040, 228075] session_deadline_ms=None overlays=0

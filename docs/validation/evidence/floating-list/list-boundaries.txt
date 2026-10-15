@@ -1,0 +1,33 @@
+dock_icon=embedded-small-gulu size=CGSize { width: 192.0, height: 192.0 }
+resident_tray_available=true
+resident_state phase=startup main_exists=false main_visible=false tray_available=true floating_visible=true overlays=0 quitting=false
+resident_activation_policy=NSApplicationActivationPolicy(1)
+2026-10-15T19:23:32.416351+08:00 command=FloatingList
+resident_state phase=event main_exists=false main_visible=false tray_available=true floating_visible=true overlays=0 quitting=false
+resident_activation_policy=NSApplicationActivationPolicy(1)
+2026-10-15T19:23:53.827718+08:00 command=CompleteFromList(a81f052f-b53e-45c3-8908-ead8e59db816, Stand, fe33febb-49ab-40d0-9c56-a210c2bb9a61)
+2026-10-15T19:23:53.828002+08:00 effects=[Record(ActivityRecord { id: b9a9d0cd-4bad-4e89-a27c-a689c72a8c94, instance_id: b9a9d0cd-4bad-4e89-a27c-a689c72a8c94, session_id: None, kind: Stand, outcome: Manual, ended_at: 2026-10-15T19:23:53.827718+08:00, local_date: "2026-10-15", reason: "主动完成" })]
+resident_state phase=event main_exists=false main_visible=false tray_available=true floating_visible=true overlays=0 quitting=false
+resident_activation_policy=NSApplicationActivationPolicy(1)
+2026-10-15T19:25:02.553711+08:00 command=CheckFloatingListFocus
+resident_state phase=event main_exists=false main_visible=false tray_available=true floating_visible=true overlays=0 quitting=false
+resident_activation_policy=NSApplicationActivationPolicy(1)
+2026-10-15T19:28:00.416801+08:00 command=FloatingList
+resident_state phase=event main_exists=false main_visible=false tray_available=true floating_visible=true overlays=0 quitting=false
+resident_activation_policy=NSApplicationActivationPolicy(1)
+2026-10-15T19:28:00.428779+08:00 command=CheckFloatingListFocus
+resident_state phase=event main_exists=false main_visible=false tray_available=true floating_visible=true overlays=0 quitting=false
+resident_activation_policy=NSApplicationActivationPolicy(1)
+2026-10-15T19:28:13.065220+08:00 effects=[Notify([Instance { id: bed49194-06f3-4f3b-921f-cc0a63758454, kind: Water, break_seconds: 15, created_at: 2026-10-15T19:28:13.065190+08:00, gentle: true }, Instance { id: 70d12415-22eb-4ef3-8b44-f96a6f0fd48c, kind: Stretch, break_seconds: 15, created_at: 2026-10-15T19:28:13.065190+08:00, gentle: true }, Instance { id: 20a097c1-1fc3-4524-9de6-6e5c10a59462, kind: EyeCare, break_seconds: 60, created_at: 2026-10-15T19:28:13.065190+08:00, gentle: true }])]
+2026-10-15T19:28:34.491344+08:00 command=CompleteFromList(34b47501-a1fe-47a9-b598-ef501d09dd42, Water, f89905f4-a787-4fc9-b004-9874d866e781)
+2026-10-15T19:28:34.491405+08:00 effects=[Record(ActivityRecord { id: bed49194-06f3-4f3b-921f-cc0a63758454, instance_id: bed49194-06f3-4f3b-921f-cc0a63758454, session_id: None, kind: Water, outcome: Manual, ended_at: 2026-10-15T19:28:34.491344+08:00, local_date: "2026-10-15", reason: "主动完成" })]
+resident_state phase=event main_exists=false main_visible=false tray_available=true floating_visible=true overlays=0 quitting=false
+resident_activation_policy=NSApplicationActivationPolicy(1)
+2026-10-15 19:28:34.884 gulu-twist[74522:225291315] TSM AdjustCapsLockLEDForKeyTransitionHandling - _ISSetPhysicalKeyboardCapsLockLED Inhibit
+2026-10-15T19:28:34.888819+08:00 command=CloseFloatingList
+resident_state phase=event main_exists=false main_visible=false tray_available=true floating_visible=true overlays=0 quitting=false
+resident_activation_policy=NSApplicationActivationPolicy(1)
+2026-10-15T19:28:49.498290+08:00 command=Quit
+2026-10-15T19:28:49.498874+08:00 effects=[Record(ActivityRecord { id: 70d12415-22eb-4ef3-8b44-f96a6f0fd48c, instance_id: 70d12415-22eb-4ef3-8b44-f96a6f0fd48c, session_id: None, kind: Stretch, outcome: Cancelled, ended_at: 2026-10-15T19:28:49.498858+08:00, local_date: "2026-10-15", reason: "应用退出" }), Record(ActivityRecord { id: 20a097c1-1fc3-4524-9de6-6e5c10a59462, instance_id: 20a097c1-1fc3-4524-9de6-6e5c10a59462, session_id: None, kind: EyeCare, outcome: Cancelled, ended_at: 2026-10-15T19:28:49.498858+08:00, local_date: "2026-10-15", reason: "应用退出" })]
+resident_state phase=event main_exists=false main_visible=false tray_available=true floating_visible=false overlays=0 quitting=true
+resident_activation_policy=NSApplicationActivationPolicy(1)
